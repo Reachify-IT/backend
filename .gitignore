@@ -1,0 +1,5 @@
+node_modules
+webCookies/data
+webCookies
+IGNORE
+.dotenv
