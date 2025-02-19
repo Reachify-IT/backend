@@ -11,7 +11,9 @@ const mergeVideos = require("../utils/mergeVideos");
 const uploadToS3 = require("../utils/uploadToS3");
 const Video = require("../models/Video");
 
-const maxConcurrency = os.cpus().length - 1;
+// const maxConcurrency = os.cpus().length - 1;
+const maxConcurrency = Math.max(1, os.cpus().length - 1);
+
 
 // ✅ Redis Connection
 const redisConnection = new Redis(process.env.REDIS_URL, {
