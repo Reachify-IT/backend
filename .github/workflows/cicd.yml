@@ -54,6 +54,9 @@ jobs:
           fi
 
       - name: Run Docker Container
-        run: docker run -d -p 8000:8000 --name backend-container --restart unless-stopped \
-          -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' \
-          abhinavdogra003768/backend:latest
+        run: docker run -d -p 8000:8000 --name backend-container --restart unless-stopped -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' abhinavdogra003768/backend
+
+
+        # run: docker run -d -p 8000:8000 --name backend-container --restart unless-stopped \
+        #   -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' \
+        #   abhinavdogra003768/backend:latest
