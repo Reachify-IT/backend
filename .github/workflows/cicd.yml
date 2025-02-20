@@ -1,4 +1,4 @@
-name: deploy backend
+name: Deploy backend
 
 on:
   push:
@@ -12,17 +12,17 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Free up disk space
-        run: docker system prune -a -f
-
       - name: Login to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin     
 
+      - name: Clean up Docker
+        run: docker system prune -af --volumes
+
       - name: Build Docker Image
-        run: docker build -t abhinavdogra003768/backend .
+        run: docker build --no-cache -t abhinavdogra003768/backend:latest .
 
       - name: Publish Image to Docker Hub
-        run: docker push abhinavdogra003768/backend:latest 
+        run: docker push abhinavdogra003768/backend:latest
 
   deploy:
     needs: build
@@ -34,11 +34,26 @@ jobs:
       - name: Pull latest image from Docker Hub
         run: docker pull abhinavdogra003768/backend:latest 
 
-      - name: Remove old container (if exists)
-        run: docker rm -f backend-container || true
+      - name: Stop and Remove Old Container
+        run: |
+          if [ $(docker ps -aq -f name=backend-container) ]; then
+            echo "Stopping and removing existing container..."
+            docker rm -f backend-container
+          else
+            echo "No existing container found."
+          fi
 
-      - name: Remove old image (if exists)
-        run: docker rmi -f abhinavdogra003768/backend:latest || true
+      - name: Remove Old Images
+        run: |
+          old_images=$(docker images -q abhinavdogra003768/backend | tail -n +2)
+          if [ -n "$old_images" ]; then
+            echo "Removing old images..."
+            echo "$old_images" | xargs docker rmi -f
+          else
+            echo "No old images to remove."
+          fi
 
       - name: Run Docker Container
-        run: docker run -d -p 8000:8000 --name backend-container --restart unless-stopped -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' abhinavdogra003768/backend
+        run: docker run -d -p 8000:8000 --name backend-container --restart unless-stopped \
+          -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' \
+          abhinavdogra003768/backend:latest

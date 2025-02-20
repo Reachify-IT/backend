@@ -24,7 +24,7 @@ const app = express();
 // Middlewares
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:5174", "http://13.126.144.181", "http://13.126.144.181:80"],
+    origin: ["http://localhost:5173", "http://localhost:5174", "http://13.232.35.33", "http://13.232.35.33:80"],
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
     credentials: true,
