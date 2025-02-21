@@ -11,6 +11,7 @@ const recordWebsite = require("../utils/recordWebsite");
 const mergeVideos = require("../utils/mergeVideos");
 const uploadToS3 = require("../utils/uploadToS3");
 const Video = require("../models/Video");
+const User = require("../models/User");
 
 const router = express.Router();
 
@@ -50,15 +51,11 @@ const queueEvents = new QueueEvents("videoProcessing", {
 const completedJobs = new Map();
 let io;
 
-// ✅ Track Job Completion with Socket.io
 queueEvents.on("completed", async ({ jobId, returnvalue }) => {
-  if (!io) io = getIoInstance();
   console.log(`✅ Job ${jobId} completed.`);
   completedJobs.set(jobId, returnvalue);
-  io.emit("jobCompleted", { jobId, urls: returnvalue });
 });
 
-// ✅ File Deletion Utility
 const deleteFile = (filePath) => {
   if (fs.existsSync(filePath)) {
     fs.unlink(filePath, (err) => {
@@ -79,8 +76,6 @@ const videoWorker = new Worker(
 
     const startTime = Date.now();
     console.log(`Processing job ${job.id}...`);
-    if (!io) io = getIoInstance();
-    io.emit("jobStarted", { jobId: job.id });
 
     const { excelPath, camVideoPath, userId } = job.data;
     if (!userId) throw new Error("❌ Missing userId in job data.");
@@ -94,7 +89,7 @@ const videoWorker = new Worker(
     }
 
     const outputDir = path.join(__dirname, "../uploads/");
-    const maxConcurrentTabs = 5;
+    const maxConcurrentTabs = 2;
     let recordedVideos = [];
 
     for (let i = 0; i < websiteUrls.length; i += maxConcurrentTabs) {
@@ -117,10 +112,6 @@ const videoWorker = new Worker(
       );
 
       recordedVideos.push(...chunkResults.filter(Boolean));
-      io.emit("jobProgress", {
-        jobId: job.id,
-        progress: (i + chunk.length) / websiteUrls.length,
-      });
     }
 
     console.log(
@@ -133,11 +124,14 @@ const videoWorker = new Worker(
     const mergedVideos = [];
     const timestamp = Date.now();
 
+    const user = await User.findById(userId);
+    const userCameraSettings = user?.cameraSettings;
+
     for (const { webUrl, path: webVideo } of recordedVideos) {
       const outputFilePath = `./uploads/merged_${timestamp}.mp4`;
       try {
         console.log("🔄 Merging videos...");
-        await mergeVideos(webVideo, camVideoPath, outputFilePath);
+        await mergeVideos(webVideo, camVideoPath, outputFilePath,userCameraSettings);
 
         console.log("☁️ Uploading to S3...");
         const s3Url = await uploadToS3(
@@ -164,12 +158,12 @@ const videoWorker = new Worker(
       try {
         const videoRecords = recordedVideos.map(({ webUrl }, index) => ({
           websiteUrl: webUrl,
-          mergedUrl: mergedVideos[index] || null, // Ensure mapping even if an upload fails
+          mergedUrl: mergedVideos[index] || null, 
         }));
 
         await Video.create({
           userId,
-          videos: videoRecords, // Store mapping directly
+          videos: videoRecords, 
         });
 
         console.log("✅ Website URLs mapped to AWS links and saved in DB!");
@@ -183,7 +177,6 @@ const videoWorker = new Worker(
     console.log(
       `✅ Job ${job.id} completed in ${(Date.now() - startTime) / 1000} seconds`
     );
-    io.emit("jobCompleted", { jobId: job.id, urls: mergedVideos });
     return mergedVideos;
   },
   { connection: redisConnection, concurrency: maxConcurrency }
@@ -197,7 +190,6 @@ const terminateProcessing = async () => {
   try {
     console.log("🛑 Termination Requested!");
     terminationRequested = true;
-    io.emit("terminationRequested");
 
     if (videoWorker) {
       await videoWorker.close();
