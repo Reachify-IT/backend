@@ -1,23 +1,42 @@
 const jwt = require("jsonwebtoken");
 
+// 🔹 Middleware to Verify JWT Token
 const verifyToken = (req, res, next) => {
-  const authHeader = req.headers.authorization;
+  try {
+    const token = req.headers.authorization; // No 'Bearer ' prefix
 
-  if (!authHeader) {
-    console.error("❌ No Authorization header found!");
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  jwt.verify(authHeader, process.env.JWT_SECRET, (err, decoded) => {
-    if (err) {
-      console.error("❌ Invalid token:", err.message);
-      return res.status(403).json({ message: "Invalid token" });
+    if (!token) {
+      console.error("❌ No token found in Authorization header!");
+      return res
+        .status(401)
+        .json({ message: "Unauthorized - No Token Provided" });
     }
 
-    req.user = decoded;
-    console.log(req.user) // Attach user details to req
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    req.user = decoded; // Attach user details to req
+    console.log("✅ Verified User:", req.user);
     next();
-  });
+  } catch (err) {
+    console.error("❌ Token Verification Error:", err.message);
+    res.status(403).json({ message: "Invalid or Expired Token" });
+  }
 };
 
-module.exports = { verifyToken };
+// 🔹 Middleware for Role-Based Authorization
+const authorizeRoles =
+  (...allowedRoles) =>
+  (req, res, next) => {
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      console.error(
+        `❌ Unauthorized Access - User Role: ${req.user?.role || "None"}`
+      );
+      return res
+        .status(403)
+        .json({ message: "Forbidden - Insufficient Permissions" });
+    }
+    console.log(`✅ Access Granted - User Role: ${req.user.role}`);
+    next();
+  };
+
+module.exports = { verifyToken, authorizeRoles };

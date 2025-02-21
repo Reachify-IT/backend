@@ -1,71 +1,79 @@
-const User = require("../models/User");
-const Admin = require("../models/Admin");
-const { hashPassword, verifyPassword, generateToken } = require("../utils/authUtils");
-const { handleError } = require("../middleware/verifyToken");
+const jwt = require("jsonwebtoken");
+const UserService = require("../services/UserService");
+const {
+  hashPassword,
+  verifyPassword,
+  generateToken,
+} = require("../utils/authUtils");
+const { validationResult } = require("express-validator");
+const { sendNotification } = require("../services/notificationService");
+
+// 🔹 Handle Validation Errors
+const validateRequest = (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty())
+    return res.status(400).json({ errors: errors.array() });
+};
 
 const signup = async (req, res, next) => {
   try {
-    const hashedPassword = await hashPassword(req.body.password);
-    const newUser = new User({ ...req.body, password: hashedPassword });
+    validateRequest(req, res);
+    const { username, email, phoneNumber, password, role = "user" } = req.body;
 
-    await newUser.save();
-    const token = generateToken(newUser._id);
-    const { password, ...otherData } = newUser._doc;
+    // Check if user already exists
+    const existingUser = await UserService.findByEmailOrUsername(email, username);
+    if (existingUser) return res.status(400).json({ error: "Email or Username already exists" });
 
-    res.status(200).json({ token, user: otherData });
+    // Check if phone number is already registered
+    const existingPhone = await UserService.findByPhone(phoneNumber);
+    if (existingPhone) return res.status(400).json({ error: "Phone number already exists" });
+
+    // Hash password and create user
+    const hashedPassword = await hashPassword(password);
+    await UserService.createUser({ username, email, phoneNumber, password: hashedPassword, role });
+
+    // ✅ Only return a success message
+    res.status(201).json({ message: "User created successfully", success: true });
   } catch (err) {
     next(err);
   }
 };
 
 
-const logout = async (req, res) => {
-  try {
-    res.cookie("token", "", { httpOnly: true, expires: new Date(0) }); // Clear the cookie
-    res.status(200).json({ message: "Logged out successfully" });
-  } catch (err) {
-    res.status(500).json({ error: "Something went wrong" });
-  }
-};
-
+// 🔹 Signin Controller
 const signin = async (req, res, next) => {
   try {
-    const user = await User.findOne({ username: req.body.username });
+    validateRequest(req, res);
+    const { email, password } = req.body;
 
-    if (!user) return next(handleError(404, "User not found"));
+    // Find user and verify password
+    const user = await UserService.findByEmail(email);
+    if (!user || !(await verifyPassword(password, user.password))) {
+      return res.status(400).json({ error: "Invalid email or password" });
+    }
 
-    const isCorrect = await verifyPassword(req.body.password, user.password);
-    if (!isCorrect) return next(handleError(400, "Wrong password"));
+    // Generate Access Token
+    const accessToken = generateToken(user._id);
+    sendNotification("Login Successfully! 🚀");
+    res.status(200).json({ accessToken, user: UserService.sanitizeUser(user) });
 
-    const token = generateToken(user._id);
-    const { password, ...otherData } = user._doc;
-
-    res.status(200).json({ token, user: otherData });
   } catch (err) {
     next(err);
   }
 };
 
-const signinAdmin = async (req, res, next) => {
+// 🔹 Secure Logout
+const logout = async (req, res) => {
   try {
-    const admin = await Admin.findOne({ username: req.body.username });
-
-    if (!admin) return next(handleError(404, "Admin not found"));
-
-    const isCorrect = await verifyPassword(req.body.password, admin.password);
-    if (!isCorrect) return next(handleError(400, "Wrong password"));
-
-    const token = generateToken(admin._id);
-    const { password, ...otherData } = admin._doc;
-
-    res.status(200).json({ token, admin: otherData });
+    res.clearCookie("accessToken", {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+    });
+    res.status(200).json({ message: "Logged out successfully" });
   } catch (err) {
-    next(err);
+    res.status(500).json({ error: "Logout failed" });
   }
 };
 
-
-
-
-module.exports = { signup, signin, signinAdmin, logout };
-
+module.exports = { signup, signin, logout };

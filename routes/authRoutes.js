@@ -1,18 +1,24 @@
 const express = require("express");
-const { signup, signin, signinAdmin, logout } = require("../controllers/authController");
-const { verifyToken } = require("../middleware/verifyToken");
+const { signup, signin,  logout } = require("../controllers/authController");
+const { verifyToken, authorizeRoles } = require("../middleware/verifyToken");
+const { validateSignup, validateSignin } = require("../validators/authValidator");
 
 const router = express.Router();
 
-router.post("/signup", signup);
+router.post("/signup", validateSignup, signup);
+router.post("/signin", validateSignin, signin);
+
 router.post("/logout", logout);
-router.post("/signin", signin);
-router.post("/admin/signin", signinAdmin);
 
+// 🔹 Protected Route for Users
+router.get("/user-dashboard", verifyToken, (req, res) => {
+  res.status(200).json({ message: "User Access Granted", user: req.user });
+});
 
-// Example of a protected route
-router.get("/protected", verifyToken, (req, res) => {
-  res.json({ message: "Access granted", user: req.user });
+// 🔹 Protected Admin Route
+router.get("/admin-dashboard", verifyToken, authorizeRoles("admin"), (req, res) => {
+  res.status(200).json({ message: "Admin Access Granted" });
 });
 
 module.exports = router;
+    
