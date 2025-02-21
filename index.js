@@ -28,9 +28,11 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*", // Adjust this in production
-    methods: ["GET", "POST"]
-  }
+    origin: ["http://localhost:5173", "http://localhost:5174", "http://3.108.236.128", "http://3.108.236.128:80"], // ✅ Ensure CORS is properly set
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  },
 });
 
 
@@ -50,7 +52,7 @@ initSocket(io);
 // Middlewares
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:5174", "http://3.110.166.59", "http://3.110.166.59:80"],
+    origin: ["http://localhost:5173", "http://localhost:5174", "http://3.108.236.128", "http://3.108.236.128:80"],
     methods: "GET,POST,PUT,DELETE",
     allowedHeaders: "Content-Type,Authorization",
     credentials: true,
