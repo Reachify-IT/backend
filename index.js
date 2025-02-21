@@ -20,21 +20,46 @@ const excelRoutes = require("./routes/excelRoutes.js");
 const feedbackRoutes = require("./routes/feedbackRoutes");
 const { initSocket } = require("./services/notificationService.js");
 
-require("./workers/videoWorker");
-
 // Initialize App
 const app = express();
 const server = http.createServer(app);
 
+// Middlewares
+app.use(
+  cors({
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://3.108.236.128",
+      "http://3.108.236.128:80",
+    ],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+  })
+);
+app.use(cookieParser());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true })); // ✅ Added for handling form data
+app.use(bodyParser.json());
+
+// Allow preflight requests
+app.options("*", cors());
+
+// Socket.io Configuration
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:5174", "http://3.108.236.128", "http://3.108.236.128:80"], // ✅ Ensure CORS is properly set
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://3.108.236.128",
+      "http://3.108.236.128:80",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   },
 });
-
 
 io.on("connection", (socket) => {
   console.log("A user connected:", socket.id);
@@ -44,25 +69,8 @@ io.on("connection", (socket) => {
   });
 });
 
-
 // Initialize the notification service
 initSocket(io);
-
-
-// Middlewares
-app.use(
-  cors({
-    origin: ["http://localhost:5173", "http://localhost:5174", "http://3.108.236.128", "http://3.108.236.128:80"],
-    methods: "GET,POST,PUT,DELETE",
-    allowedHeaders: "Content-Type,Authorization",
-    credentials: true,
-  })
-);
-app.use(cookieParser());
-app.use(express.json());
-app.use(bodyParser.json());
-
-app.options("*", cors());
 
 // Routes
 app.use("/api/auth", authRoutes);
@@ -79,12 +87,9 @@ app.get("/", (req, res) => {
 // Error Handling Middleware
 app.use(errorHandler);
 
-
-
 // Start Server
 const PORT = process.env.PORT || 8000;
 server.listen(PORT, async () => {
-  connectDB();
+  await connectDB(); // ✅ Ensuring database connection before server starts
   console.log(`Server running on port ${PORT}`);
 });
-
