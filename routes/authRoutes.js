@@ -1,5 +1,5 @@
 const express = require("express");
-const { signup, signin,  logout } = require("../controllers/authController");
+const { signup, signin, userDetails,updateDetails, logout } = require("../controllers/authController");
 const { verifyToken, authorizeRoles } = require("../middleware/verifyToken");
 const { validateSignup, validateSignin } = require("../validators/authValidator");
 
@@ -7,6 +7,8 @@ const router = express.Router();
 
 router.post("/signup", validateSignup, signup);
 router.post("/signin", validateSignin, signin);
+router.get("/me", verifyToken, userDetails); 
+router.put("/update", verifyToken, updateDetails); 
 
 router.post("/logout", logout);
 

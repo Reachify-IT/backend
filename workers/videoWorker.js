@@ -15,11 +15,9 @@ const User = require("../models/User");
 
 const router = express.Router();
 
-// ✅ Max CPU Utilization (Leaves 1 core free)
 const maxConcurrency = Math.max(1, os.cpus().length - 1);
 let terminationRequested = false;
 
-// ✅ Optimized Redis Connection
 const redisConnection = new Redis(process.env.REDIS_URL, {
   tls: { rejectUnauthorized: false },
   maxRetriesPerRequest: null,
@@ -32,28 +30,31 @@ const redisConnection = new Redis(process.env.REDIS_URL, {
   },
 });
 
-// ✅ BullMQ Queue
 const videoQueue = new Queue("videoProcessing", {
   connection: redisConnection,
   defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 50,
+    removeOnComplete: true,
+    removeOnFail: true,
     attempts: 3,
     backoff: { type: "exponential", delay: 5000 },
   },
 });
 
-// ✅ Queue Events (for tracking job status)
 const queueEvents = new QueueEvents("videoProcessing", {
   connection: redisConnection,
 });
-
 const completedJobs = new Map();
-let io;
 
 queueEvents.on("completed", async ({ jobId, returnvalue }) => {
   console.log(`✅ Job ${jobId} completed.`);
-  completedJobs.set(jobId, returnvalue);
+  console.log("📦 Job Result:", returnvalue);
+
+  if (returnvalue) {
+    completedJobs.set(jobId, returnvalue);
+    console.log(`✅ Job ${jobId} result stored in completedJobs.`);
+  } else {
+    console.warn(`⚠️ Job ${jobId} completed but returned no data.`);
+  }
 });
 
 const deleteFile = (filePath) => {
@@ -65,147 +66,189 @@ const deleteFile = (filePath) => {
   }
 };
 
-// ✅ Video Processing Worker
-const videoWorker = new Worker(
+const maxConcurrentTabs = 5;
+
+const processWebsites = async (websiteUrls, jobId) => {
+  const outputDir = path.join(__dirname, "../uploads/");
+  let recordedVideos = [];
+
+  for (let i = 0; i < websiteUrls.length; i += maxConcurrentTabs) {
+    if (terminationRequested) {
+      console.log(`🛑 Job ${jobId} termination requested. Stopping after current batch.`);
+      break; // Stop queuing new batches
+    }
+
+    const chunk = websiteUrls.slice(i, i + maxConcurrentTabs);
+    console.log(`🎥 Processing batch of ${chunk.length} websites...`);
+
+    const chunkResults = await Promise.allSettled(
+      chunk.map(async (webUrl) => {
+        try {
+          if (terminationRequested) return null; // Prevent new recordings
+          return { webUrl, path: await recordWebsite(webUrl, outputDir) };
+        } catch (err) {
+          console.error(`❌ Failed to record ${webUrl}:`, err.message);
+          return null;
+        }
+      })
+    );
+
+    // ✅ Ensure only successful recordings are added
+    recordedVideos.push(...chunkResults.filter(r => r.status === "fulfilled" && r.value !== null).map(r => r.value));
+
+    // 🛑 Stop after finishing the current batch if termination is requested
+    if (terminationRequested) {
+      console.log(`🛑 Job ${jobId} stopped after completing batch ${i / maxConcurrentTabs + 1}.`);
+      break;
+    }
+  }
+
+  console.log(`✅ Websites recorded successfully: ${recordedVideos.length}`);
+  return recordedVideos;
+};
+
+const processJob = async (job) => {
+  try {
+    if (terminationRequested) {
+      console.log(`🛑 Job ${job.id} skipped due to termination.`);
+      return [];
+    }
+
+    console.log(`🚀 Processing job ${job.id}...`);
+    const { excelPath, camVideoPath, userId } = job.data;
+
+    if (!userId) throw new Error("❌ Missing userId in job data.");
+    const user = await User.findById(userId);
+    if (!user) throw new Error("❌ User not found for job.");
+    const cameraSettings = user.cameraSettings;
+
+    const websiteUrls = processExcel(excelPath);
+    if (!websiteUrls.length)
+      throw new Error("❌ No valid URLs found in the Excel file.");
+
+    // ✅ Use extracted parallel processing function
+    const recordedVideos = await processWebsites(websiteUrls, job.id);
+    if (!recordedVideos.length)
+      throw new Error("❌ No recordings succeeded.");
+
+    const mergedVideos = [];
+    for (const { webUrl, path: webVideo } of recordedVideos) {
+      const outputFilePath = `./uploads/merged_${Date.now()}.mp4`;
+
+      try {
+        console.log("🔄 Merging videos...");
+        await mergeVideos(webVideo, camVideoPath, outputFilePath, cameraSettings);
+
+        console.log("☁️ Uploading to S3...");
+        const s3Url = await uploadToS3(outputFilePath, `merged_${Date.now()}.mp4`);
+        mergedVideos.push(s3Url);
+        console.log(`✅ Video uploaded to S3: ${s3Url}`);
+      } catch (mergeError) {
+        console.error(`❌ Merging or Uploading Failed for ${webUrl}:`, mergeError.message);
+      } finally {
+        deleteFile(webVideo);
+        deleteFile(outputFilePath);
+      }
+    }
+
+    deleteFile(excelPath);
+    deleteFile(camVideoPath);
+
+    // ✅ Ensure correct mapping before saving to MongoDB
+    const videoRecords = mergedVideos.map((url, index) => ({
+      websiteUrl: recordedVideos[index]?.webUrl || "Unknown",
+      mergedUrl: url,
+    }));
+
+    if (videoRecords.length > 0) {
+      await Video.create({ userId, videos: videoRecords });
+      console.log("✅ Videos successfully saved to DB!");
+    } else {
+      console.warn("⚠️ No videos processed. Skipping DB save.");
+    }
+
+    console.log(`✅ Job ${job.id} completed.`);
+    return mergedVideos;
+  } catch (error) {
+    console.error(`❌ Error in job ${job.id}:`, error.message);
+    throw error;
+  }
+};
+
+
+
+let videoWorker = new Worker(
   "videoProcessing",
   async (job) => {
     if (terminationRequested) {
       console.log(`🛑 Job ${job.id} skipped due to termination.`);
       return;
     }
-
-    const startTime = Date.now();
-    console.log(`Processing job ${job.id}...`);
-
-    const { excelPath, camVideoPath, userId } = job.data;
-    if (!userId) throw new Error("❌ Missing userId in job data.");
-
-    console.log(`🔍 Processing Excel File: ${excelPath}`);
-    const websiteUrls = processExcel(excelPath);
-
-    if (websiteUrls.length === 0) {
-      console.error("❌ No valid URLs found in the Excel file");
-      return; // Stop further execution
-    }
-
-    const outputDir = path.join(__dirname, "../uploads/");
-    const maxConcurrentTabs = 2;
-    let recordedVideos = [];
-
-    for (let i = 0; i < websiteUrls.length; i += maxConcurrentTabs) {
-      if (terminationRequested) {
-        console.log(`🛑 Job ${job.id} stopped early due to termination.`);
-        break;
-      }
-      const chunk = websiteUrls.slice(i, i + maxConcurrentTabs);
-      console.log(`🎥 Processing batch of ${chunk.length} websites...`);
-
-      const chunkResults = await Promise.all(
-        chunk.map(async (webUrl) => {
-          try {
-            return { webUrl, path: await recordWebsite(webUrl, outputDir) };
-          } catch (err) {
-            console.error(`❌ Failed to record ${webUrl}:`, err.message);
-            return null;
-          }
-        })
-      );
-
-      recordedVideos.push(...chunkResults.filter(Boolean));
-    }
-
-    console.log(
-      "✅ All websites recorded successfully:",
-      recordedVideos.length
-    );
-    if (recordedVideos.length === 0)
-      throw new Error("❌ No recordings succeeded.");
-
-    const mergedVideos = [];
-    const timestamp = Date.now();
-
-    const user = await User.findById(userId);
-    const userCameraSettings = user?.cameraSettings;
-
-    for (const { webUrl, path: webVideo } of recordedVideos) {
-      const outputFilePath = `./uploads/merged_${timestamp}.mp4`;
-      try {
-        console.log("🔄 Merging videos...");
-        await mergeVideos(webVideo, camVideoPath, outputFilePath,userCameraSettings);
-
-        console.log("☁️ Uploading to S3...");
-        const s3Url = await uploadToS3(
-          outputFilePath,
-          `merged_${timestamp}.mp4`
-        );
-        mergedVideos.push(s3Url);
-
-        console.log(`✅ Video uploaded to S3: ${s3Url}`);
-      } catch (mergeError) {
-        console.error(
-          `❌ Merging or Uploading Failed for ${webUrl}:`,
-          mergeError.message
-        );
-      }
-      deleteFile(webVideo);
-      deleteFile(outputFilePath);
-    }
-
-    deleteFile(excelPath);
-    deleteFile(camVideoPath);
-
-    if (mergedVideos?.length > 0) {
-      try {
-        const videoRecords = recordedVideos.map(({ webUrl }, index) => ({
-          websiteUrl: webUrl,
-          mergedUrl: mergedVideos[index] || null, 
-        }));
-
-        await Video.create({
-          userId,
-          videos: videoRecords, 
-        });
-
-        console.log("✅ Website URLs mapped to AWS links and saved in DB!");
-      } catch (dbError) {
-        console.error("❌ MongoDB Save Error:", dbError);
-      }
-    } else {
-      console.warn("⚠️ No videos were processed. Skipping DB save.");
-    }
-
-    console.log(
-      `✅ Job ${job.id} completed in ${(Date.now() - startTime) / 1000} seconds`
-    );
-    return mergedVideos;
+    return await processJob(job);
   },
-  { connection: redisConnection, concurrency: maxConcurrency }
+  {
+    connection: redisConnection,
+    concurrency: maxConcurrency,
+    lockDuration: 60000,
+  }
 );
 
-
-
-
-// ✅ Function to terminate processing
-const terminateProcessing = async () => {
+const terminateProcessing = async (req, res) => {
   try {
     console.log("🛑 Termination Requested!");
     terminationRequested = true;
 
-    if (videoWorker) {
-      await videoWorker.close();
-      console.log("✅ Worker closed.");
-    }
+    await videoQueue.pause();
+    console.log("🚫 Queue Paused!");
 
-    if (redisConnection && redisConnection.status === "ready") {
-      await redisConnection.quit();
-      console.log("✅ Redis connection closed.");
+    await videoWorker.close();
+    console.log("💀 Worker Closed!");
+
+    console.log("⏳ Waiting before clearing queue...");
+    await new Promise((resolve) => setTimeout(resolve, 5000)); // Delay before clearing jobs
+
+    await videoQueue.drain();
+    console.log("🧹 Queue Drained (Removed Waiting Jobs)!");
+
+    await videoQueue.obliterate({ force: true });
+    console.log("🔥 All Jobs Cleared!");
+
+    await redisConnection.flushall();
+    console.log("🧹 Redis fully reset!");
+
+    completedJobs.clear();
+    console.log("🧹 Cleared completed jobs map!");
+
+    terminationRequested = false;
+
+    setTimeout(() => {
+      console.log("🔄 Restarting Worker...");
+      videoWorker = new Worker(
+        "videoProcessing",
+        async (job) => processJob(job),
+        {
+          connection: redisConnection,
+          concurrency: maxConcurrency,
+          lockDuration: 60000,
+        }
+      );
+      console.log("✅ Worker Restarted!");
+    }, 5000);
+
+    if (res) {
+      return res.json({ message: "Processing terminated successfully." });
+    } else {
+      console.log("✅ Termination completed. No response sent (Worker call).");
     }
   } catch (error) {
     console.error("❌ Error during termination:", error);
+
+    if (res) {
+      return res.status(500).json({ error: "Failed to terminate processing" });
+    }
   }
 };
 
-// ✅ Redis Event Listeners
 redisConnection.on("connect", () => console.log("✅ Redis connected!"));
 redisConnection.on("error", (err) =>
   console.error("❌ Redis connection error:", err)

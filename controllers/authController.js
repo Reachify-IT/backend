@@ -21,24 +21,38 @@ const signup = async (req, res, next) => {
     const { username, email, phoneNumber, password, role = "user" } = req.body;
 
     // Check if user already exists
-    const existingUser = await UserService.findByEmailOrUsername(email, username);
-    if (existingUser) return res.status(400).json({ error: "Email or Username already exists" });
+    const existingUser = await UserService.findByEmailOrUsername(
+      email,
+      username
+    );
+    if (existingUser)
+      return res
+        .status(400)
+        .json({ error: "Email or Username already exists" });
 
     // Check if phone number is already registered
     const existingPhone = await UserService.findByPhone(phoneNumber);
-    if (existingPhone) return res.status(400).json({ error: "Phone number already exists" });
+    if (existingPhone)
+      return res.status(400).json({ error: "Phone number already exists" });
 
     // Hash password and create user
     const hashedPassword = await hashPassword(password);
-    await UserService.createUser({ username, email, phoneNumber, password: hashedPassword, role });
+    await UserService.createUser({
+      username,
+      email,
+      phoneNumber,
+      password: hashedPassword,
+      role,
+    });
 
     // ✅ Only return a success message
-    res.status(201).json({ message: "User created successfully", success: true });
+    res
+      .status(201)
+      .json({ message: "User created successfully", success: true });
   } catch (err) {
     next(err);
   }
 };
-
 
 // 🔹 Signin Controller
 const signin = async (req, res, next) => {
@@ -54,10 +68,58 @@ const signin = async (req, res, next) => {
 
     // Generate Access Token
     const accessToken = generateToken(user._id);
-    sendNotification("Login Successfully! 🚀");
+    sendNotification("✅ Login Successfully! 🚀");
     res.status(200).json({ accessToken, user: UserService.sanitizeUser(user) });
-
   } catch (err) {
+    next(err);
+  }
+};
+
+const userDetails = async (req, res, next) => {
+  try {
+    const user = await UserService.findById(req.user.id); // Find by ID instead of email
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    res.status(200).json({ user: UserService.sanitizeUser(user) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+const updateDetails = async (req, res, next) => {
+  try {
+    const { username, email, phoneNumber } = req.body;
+    const userId = req.user.id; // Get user ID from token
+
+    // Check if email or phone number already exists
+    const existingEmail = await UserService.findByEmail(email);
+    if (existingEmail && existingEmail._id.toString() !== userId) {
+      return res.status(400).json({ error: "Email already exists" });
+    }
+
+    const existingPhone = await UserService.findByPhone(phoneNumber);
+    if (existingPhone && existingPhone._id.toString() !== userId) {
+      return res.status(400).json({ error: "Phone number already exists" });
+    }
+
+    // Update user details
+    const updatedUser = await UserService.updateUser(userId, {
+      username,
+      email,
+      phoneNumber,
+    });
+
+    sendNotification("✅ User Details Updated Successfully! 🚀");
+
+    res
+      .status(200)
+      .json({
+        message: "User details updated successfully",
+        user: UserService.sanitizeUser(updatedUser),
+      });
+  } catch (err) {
+    sendNotification("❌ User Details Update Failed! 🚀");
     next(err);
   }
 };
@@ -76,4 +138,6 @@ const logout = async (req, res) => {
   }
 };
 
-module.exports = { signup, signin, logout };
+
+
+module.exports = { signup, signin, userDetails, updateDetails, logout };

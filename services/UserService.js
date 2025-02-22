@@ -6,6 +6,10 @@ class UserService {
     return await User.findOne({ email }).select("+password");
   }
 
+  static async findById(userId) {
+    return await User.findById(userId);
+  }
+
   // 🔹 Find User by Phone Number
   static async findByPhone(phoneNumber) {
     return await User.findOne({ phoneNumber });
@@ -19,6 +23,11 @@ class UserService {
   // 🔹 Create New User
   static async createUser(userData) {
     return await new User(userData).save();
+  }
+
+  // 🔹 Update User Details
+  static async updateUser(userId, updateData) {
+    return await User.findByIdAndUpdate(userId, { $set: updateData }, { new: true });
   }
 
   // 🔹 Sanitize User Data (Prevents Password Exposure)

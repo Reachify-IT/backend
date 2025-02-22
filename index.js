@@ -21,6 +21,7 @@ const editRoutes = require("./routes/editRoutes.js");
 const excelRoutes = require("./routes/excelRoutes.js");
 const feedbackRoutes = require("./routes/feedbackRoutes");
 const { initSocket } = require("./services/notificationService.js");
+const userRoutes = require("./routes/userRoutes.js");
 
 // Initialize App
 const app = express();
@@ -80,6 +81,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/edit", editRoutes);
 app.use("/api/excel", excelRoutes);
 app.use("/api/feedback", feedbackRoutes);
+app.use("/api/users", userRoutes);
 
 // Root Route
 app.get("/", (req, res) => {

@@ -1,18 +1,17 @@
 const express = require("express");
 const {
-  getUsers,
-  removeUser,
-  updatePlan,
-  getPlanDetails,
-  updateLimit,
+  getCameraSettings,
+  updateCameraSettings,
+  upgradeUserPlan,
 } = require("../controllers/userController.js");
+
+const { verifyToken } = require("../middleware/verifyToken.js"); // ✅ Ensure correct path
 
 const router = express.Router();
 
-router.get("/Allusers", getUsers);
-router.post("/remove", removeUser);
-router.post("/plan", updatePlan);
-router.post("/plandetails", getPlanDetails);
-router.post("/limit", updateLimit);
+// Protected routes
+router.get("/camera-settings", verifyToken, getCameraSettings);
+router.put("/camera-settings", verifyToken, updateCameraSettings);
+router.put("/upgrade-plan", verifyToken, upgradeUserPlan);
 
 module.exports = router;

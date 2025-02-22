@@ -65,4 +65,3 @@ const mergeVideos = (webPath, camPath, outputPath, cameraSettings) => {
 };
 
 module.exports = mergeVideos;
-

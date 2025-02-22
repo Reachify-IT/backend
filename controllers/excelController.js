@@ -5,11 +5,18 @@ const processExcel = require("../utils/processExcel");
 const { terminateProcessing, mergedUrls } = require("../workers/videoWorker");
 const { completedJobs } = require("../workers/videoWorker");
 const Video = require("../models/Video");
+const {
+  canUploadVideos,
+  incrementVideoCount,
+} = require("../services/subscriptionService");
+const  { sendNotification } = require("../services/notificationService");
 
 let uploadedFiles = {
   excelPath: null,
   camVideoPath: null,
 };
+
+const maxConcurrentTabs = 5;
 
 // 🟢 Upload Excel File (Only `.xlsx`)
 exports.uploadExcel = async (req, res) => {
@@ -49,9 +56,29 @@ exports.uploadCamVideo = async (req, res) => {
   }
 };
 
-// ✅ Start Processing (After Both Files Are Uploaded)
+const waitForQueueReady = async () => {
+  while (
+    (await videoQueue.getJobCounts()).waiting > 0 ||
+    (await videoQueue.getJobCounts()).delayed > 0
+  ) {
+    console.log("⏳ Waiting for queue to fully reset...");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  console.log("✅ Queue is ready for new jobs!");
+};
+
 exports.startProcessing = async (req, res) => {
   try {
+    console.log("⚠️ startProcessing() was called! Checking why...");
+
+    // ✅ Ensure it's manually triggered (Prevent auto execution)
+    if (!Boolean(req.body.manualStart)) {
+      console.log("🚫 Rejecting automatic trigger!");
+      return res
+        .status(400)
+        .json({ error: "Processing must be manually started." });
+    }
+
     if (!uploadedFiles.excelPath || !uploadedFiles.camVideoPath) {
       return res
         .status(400)
@@ -61,11 +88,8 @@ exports.startProcessing = async (req, res) => {
     console.log("📂 Processing Excel File:", uploadedFiles.excelPath);
     console.log("📹 Processing Camera Video:", uploadedFiles.camVideoPath);
 
-    // ✅ Extract `userId` from `req.user`
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized: User ID missing" });
-    }
+    // ✅ Ensure queue is fully cleared before adding a new job
+    await waitForQueueReady();
 
     const websiteUrls = processExcel(uploadedFiles.excelPath);
     if (websiteUrls.length === 0) {
@@ -74,46 +98,97 @@ exports.startProcessing = async (req, res) => {
         .json({ error: "No valid URLs found in the Excel file" });
     }
 
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized: User ID missing" });
+    }
+
+    const videoCount = websiteUrls.length;
+    const { allowed, message, remaining } = await canUploadVideos(
+      userId,
+      videoCount
+    );
+    if (!allowed) {
+      return res.status(403).json({ error: message });
+    }
+
+    console.log(`Queuing ${videoCount} videos for processing...`);
+
     console.log("Queuing job for processing...");
 
-    // ✅ Add Job to Queue
     const job = await videoQueue.add("process-videos", {
       excelPath: uploadedFiles.excelPath,
       camVideoPath: uploadedFiles.camVideoPath,
-      userId, // Include userId in job data
+      userId,
+      videoCount,
     });
 
     console.log(`✅ Job queued with ID: ${job.id}`);
 
-    // ✅ Reset uploaded file paths after queuing
     uploadedFiles.excelPath = null;
     uploadedFiles.camVideoPath = null;
 
-    // Poll for job completion
-    const checkJobCompletion = async () => {
-      return new Promise((resolve) => {
+    const checkJobCompletion = async (jobId, videoCount) => {
+      return new Promise((resolve, reject) => {
+        let attempts = 0;
+
+        // ⏳ Dynamically adjust max timeout based on video count
+        const estimatedProcessingTime =
+          Math.ceil(videoCount / maxConcurrentTabs) * 5; // Rough estimate (5s per batch)
+        const maxAttempts = Math.max(
+          estimatedProcessingTime,
+          Math.ceil(videoCount / maxConcurrentTabs) * 20
+        );
+        // Minimum 120s, increases for larger batches
+
+        console.log(
+          `⏳ Waiting for job ${jobId} completion (Max Attempts: ${maxAttempts})...`
+        );
+
         const interval = setInterval(() => {
-          if (completedJobs.has(job.id)) {
+          attempts++;
+
+          if (completedJobs.has(jobId)) {
             clearInterval(interval);
-            resolve(completedJobs.get(job.id));
-            completedJobs.delete(job.id); // Cleanup
+            console.log(`✅ Job ${jobId} completed.`);
+            const result = completedJobs.get(jobId);
+            completedJobs.delete(jobId); // Cleanup
+            return resolve(result);
           }
-        }, 2000);
+
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            console.error(`❌ Job ${jobId} took too long to complete.`);
+            return reject(new Error("Job took too long to complete"));
+          }
+        }, 2000); // 🔄 Check every 2 seconds
       });
     };
 
-    const mergedUrls = await checkJobCompletion();
+    // ✅ Pass correct job ID to check completion
+    const mergedUrls = await checkJobCompletion(job.id);
+    console.log("Merged URLs in completed job:", mergedUrls);
 
     if (mergedUrls?.length > 0) {
-      return res.status(200).json({ success: true, mergedUrls });
+      await incrementVideoCount(userId, mergedUrls.length);
+      sendNotification(
+        `${mergedUrls.length} video processing completed, Remaining slots: ${remaining} videos`
+      );
+      return res.status(200).json({
+        success: true,
+        mergedUrls,
+        message: `Videos processed successfully. Remaining slots: ${remaining}`,
+      });
     } else {
+      sendNotification("❌ No videos processed");
       return res
         .status(500)
         .json({ error: "Processing failed, no videos merged." });
     }
   } catch (error) {
+    sendNotification("❌ Error processing videos");
     console.error("❌ Error queuing process:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
@@ -137,12 +212,11 @@ exports.getAllVideos = async (req, res) => {
     const userId = req.user.id;
 
     // ✅ Fetch all videos for the authenticated user
-    const videos = await Video.find({ userId })
-      .sort({ createdAt: -1 })
-      .lean(); // Optimizes query performance
+    const videos = await Video.find({ userId }).sort({ createdAt: -1 }).lean(); // Optimizes query performance
 
     res.status(200).json({
-      message: videos.length > 0 ? "Videos fetched successfully" : "No videos found.",
+      message:
+        videos.length > 0 ? "Videos fetched successfully" : "No videos found.",
       videos,
     });
   } catch (error) {

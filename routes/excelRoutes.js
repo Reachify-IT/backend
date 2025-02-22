@@ -67,7 +67,11 @@ router.post("/upload-cam-video", uploadVideoFile.single("file"), (req, res, next
 router.post("/terminate", terminateProcessing);
 
 // ✅ Start Processing (After Both Files Are Uploaded)
-router.post("/start-processing", verifyToken, startProcessing);
+router.post("/start-processing", verifyToken, (req, res, next) => {
+  req.body.manualStart = true; // ✅ Enforce manual trigger
+  next();
+}, startProcessing);
+
 router.get("/all-videos", verifyToken, getAllVideos);
 
 module.exports = router;
