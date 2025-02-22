@@ -27,4 +27,4 @@ jobs:
       - name: Delete old container
         run: docker rm -f backend-container  
       - name: Run Docker Container
-        run: docker run -d -p 8000:8000 --name backend-container \ -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' \ -e ALLOWED_ORIGINS='${{ secrets.ALLOWED_ORIGINS }}' \ abhinavdogra003768/backend
+        run: docker run -d -p 8000:8000 --name backend-container -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' -e ALLOWED_ORIGINS='${{ secrets.ALLOWED_ORIGINS }}' abhinavdogra003768/backend
