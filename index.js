@@ -64,14 +64,15 @@ app.use(bodyParser.json());
 app.options("*", cors());
 
 // Socket.io Setup
-const io = new Server(server,
-  cors({
-    origin: allowedOrigins,
+const io = new Server(server, {
+  cors: {
+    origin: "http://backend.reachifyinnovations.com",
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
-  }) 
-);
+  }
+});
+
 io.on("connection", (socket) => {
   logger.info("A user connected: " + socket.id);
 
