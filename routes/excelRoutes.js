@@ -16,11 +16,11 @@ const router = express.Router();
 // 🟢 Custom Multer Storage Configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, "uploads/"); // Save files in "uploads" folder
+    cb(null, "uploads/"); 
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname); // Get file extension
-    cb(null, `${file.fieldname}-${Date.now()}${ext}`); // Unique filename
+    const ext = path.extname(file.originalname); 
+    cb(null, `${file.fieldname}-${Date.now()}${ext}`); 
   },
 });
 
@@ -64,7 +64,10 @@ router.post("/upload-cam-video", uploadVideoFile.single("file"), (req, res, next
   next();
 }, uploadCamVideo);
 
+
+
 router.post("/terminate", terminateProcessing);
+
 
 // ✅ Start Processing (After Both Files Are Uploaded)
 router.post("/start-processing", verifyToken, (req, res, next) => {

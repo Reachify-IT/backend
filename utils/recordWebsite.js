@@ -9,29 +9,28 @@ const { PuppeteerScreenRecorder } = require("puppeteer-screen-recorder");
 const smoothScroll = async (page) => {
   await page.evaluate(async () => {
     const totalHeight = document.body.scrollHeight;
-    const scrollStep = window.innerHeight / 1.3; // Faster scrolling
+    const scrollStep = window.innerHeight / 2; // Slower scrolling for smoothness
     let currentPosition = 0;
 
+    // Smoothly scroll from top to bottom
     while (currentPosition < totalHeight) {
       window.scrollBy(0, scrollStep);
-      await new Promise((resolve) => setTimeout(resolve, 150)); // Shorter delay
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Increase delay for smoother effect
       currentPosition += scrollStep;
     }
 
-    // Pause briefly at bottom
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    // Stay at the footer for 20 seconds
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // Scroll back up
+    // Smoothly scroll back from bottom to top
     while (currentPosition > 0) {
       window.scrollBy(0, -scrollStep);
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      await new Promise((resolve) => setTimeout(resolve, 1000)); // Same smooth delay
       currentPosition -= scrollStep;
     }
   });
-
-  // Reduce pause time at top
-  await new Promise((resolve) => setTimeout(resolve, 800));
 };
+
 
 /**
  * Record Website and Save Video
@@ -55,20 +54,17 @@ const recordWebsite = async (webUrl, outputDir) => {
   const page = await browser.newPage();
 
   // ✅ Set timeouts to prevent crashes
-  await page.setDefaultNavigationTimeout(0); // Remove Puppeteer's default timeout
-  await page.setDefaultTimeout(0); // Remove other timeouts
+  await page.setDefaultNavigationTimeout(0);
+  await page.setDefaultTimeout(0);
 
   try {
     console.log(`🌍 Navigating to ${webUrl}...`);
     
-    // ✅ Custom timeout to avoid infinite waiting
-    const timeoutLimit = 45000; // 45 seconds max
-    const pageLoadPromise = page.goto(webUrl, { waitUntil: "load" });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("⏳ Website took too long to load")), timeoutLimit)
-    );
+    // ✅ Wait for the page to be fully visible instead of a fixed timeout
+    await page.goto(webUrl, { waitUntil: "domcontentloaded" });
 
-    await Promise.race([pageLoadPromise, timeoutPromise]);
+    // Ensure that the body element is visible before proceeding
+    await page.waitForSelector("body", { visible: true });
 
     const outputPath = path.join(outputDir, `web_${Date.now()}.mp4`);
     const recorder = new PuppeteerScreenRecorder(page, {

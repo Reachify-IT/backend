@@ -3,20 +3,22 @@ const path = require("path");
 const { videoQueue } = require("../config/redis");
 const processExcel = require("../utils/processExcel");
 const { terminateProcessing, mergedUrls } = require("../workers/videoWorker");
-const { completedJobs } = require("../workers/videoWorker");
+const { queueEvents } = require("../workers/videoWorker");
 const Video = require("../models/Video");
 const {
   canUploadVideos,
   incrementVideoCount,
 } = require("../services/subscriptionService");
-const  { sendNotification } = require("../services/notificationService");
+const { sendNotification } = require("../services/notificationService");
+const { QueueEvents } = require("bullmq");
+
 
 let uploadedFiles = {
   excelPath: null,
   camVideoPath: null,
 };
 
-const maxConcurrentTabs = 5;
+const maxConcurrentTabs = 1;
 
 // 🟢 Upload Excel File (Only `.xlsx`)
 exports.uploadExcel = async (req, res) => {
@@ -128,40 +130,17 @@ exports.startProcessing = async (req, res) => {
     uploadedFiles.excelPath = null;
     uploadedFiles.camVideoPath = null;
 
-    const checkJobCompletion = async (jobId, videoCount) => {
+    const checkJobCompletion = async (jobId) => {
       return new Promise((resolve, reject) => {
-        let attempts = 0;
+        console.log(`⏳ Waiting for job ${jobId} to complete...`);
 
-        // ⏳ Dynamically adjust max timeout based on video count
-        const estimatedProcessingTime =
-          Math.ceil(videoCount / maxConcurrentTabs) * 5; // Rough estimate (5s per batch)
-        const maxAttempts = Math.max(
-          estimatedProcessingTime,
-          Math.ceil(videoCount / maxConcurrentTabs) * 20
-        );
-        // Minimum 120s, increases for larger batches
-
-        console.log(
-          `⏳ Waiting for job ${jobId} completion (Max Attempts: ${maxAttempts})...`
-        );
-
-        const interval = setInterval(() => {
-          attempts++;
-
-          if (completedJobs.has(jobId)) {
-            clearInterval(interval);
+        // Listen for the job completion
+        queueEvents.on("completed", ({ jobId: completedJobId, returnvalue }) => {
+          if (completedJobId === jobId) {
             console.log(`✅ Job ${jobId} completed.`);
-            const result = completedJobs.get(jobId);
-            completedJobs.delete(jobId); // Cleanup
-            return resolve(result);
+            resolve(returnvalue);
           }
-
-          if (attempts >= maxAttempts) {
-            clearInterval(interval);
-            console.error(`❌ Job ${jobId} took too long to complete.`);
-            return reject(new Error("Job took too long to complete"));
-          }
-        }, 2000); // 🔄 Check every 2 seconds
+        });
       });
     };
 
@@ -172,7 +151,7 @@ exports.startProcessing = async (req, res) => {
     if (mergedUrls?.length > 0) {
       await incrementVideoCount(userId, mergedUrls.length);
       sendNotification(
-        `${mergedUrls.length} video processing completed, Remaining slots: ${remaining} videos`
+        `✅ ${mergedUrls.length} video processing completed, Remaining slots: ${remaining} videos`
       );
       return res.status(200).json({
         success: true,

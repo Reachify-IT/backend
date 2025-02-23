@@ -66,7 +66,7 @@ const deleteFile = (filePath) => {
   }
 };
 
-const maxConcurrentTabs = 5;
+const maxConcurrentTabs = 1;
 
 const processWebsites = async (websiteUrls, jobId) => {
   const outputDir = path.join(__dirname, "../uploads/");
@@ -123,6 +123,7 @@ const processJob = async (job) => {
     const cameraSettings = user.cameraSettings;
 
     const websiteUrls = processExcel(excelPath);
+    console.log("✅ Excel file processed successfully.", websiteUrls);
     if (!websiteUrls.length)
       throw new Error("❌ No valid URLs found in the Excel file.");
 
@@ -198,47 +199,82 @@ const terminateProcessing = async (req, res) => {
     console.log("🛑 Termination Requested!");
     terminationRequested = true;
 
+    // Pause Queue
     await videoQueue.pause();
     console.log("🚫 Queue Paused!");
 
-    await videoWorker.close();
-    console.log("💀 Worker Closed!");
+    // Close Worker
+    if (videoWorker) {
+      await videoWorker.close();
+      console.log("💀 Worker Closed!");
+    }
 
+    // Wait before clearing queue
     console.log("⏳ Waiting before clearing queue...");
-    await new Promise((resolve) => setTimeout(resolve, 5000)); // Delay before clearing jobs
+    await new Promise((resolve) => setTimeout(resolve, 5000));
 
+    // Drain and clear queue
     await videoQueue.drain();
     console.log("🧹 Queue Drained (Removed Waiting Jobs)!");
 
     await videoQueue.obliterate({ force: true });
     console.log("🔥 All Jobs Cleared!");
 
+    // Reset Redis
     await redisConnection.flushall();
     console.log("🧹 Redis fully reset!");
 
+    // Clear Completed Jobs Map
     completedJobs.clear();
     console.log("🧹 Cleared completed jobs map!");
 
     terminationRequested = false;
 
-    setTimeout(() => {
-      console.log("🔄 Restarting Worker...");
-      videoWorker = new Worker(
-        "videoProcessing",
-        async (job) => processJob(job),
-        {
-          connection: redisConnection,
-          concurrency: maxConcurrency,
-          lockDuration: 60000,
-        }
-      );
-      console.log("✅ Worker Restarted!");
-    }, 5000);
+     // 🔄 **Check & Restart Redis Connection**
+     if (!redisConnection.status || redisConnection.status !== "ready") {
+      console.log("🔄 Redis connection lost. Reconnecting...");
+      redisConnection = new Redis({
+        host: "localhost",
+        port: 6379,
+      });
+
+      redisConnection.on("ready", () => {
+        console.log("✅ Redis Reconnected!");
+      });
+
+      redisConnection.on("error", (err) => {
+        console.error("❌ Redis Connection Error:", err);
+      });
+
+      // Wait for Redis to be ready
+      await new Promise((resolve) => redisConnection.once("ready", resolve));
+    } else {
+      console.log("✅ Redis already connected.");
+    }
+    // 🔄 **Restarting Worker**
+    console.log("🔄 Restarting Worker...");
+    videoWorker = new Worker(
+      "videoProcessing",
+      async (job) => await processJob(job),
+      {
+        connection: redisConnection,
+        concurrency: maxConcurrency,
+        lockDuration: 60000,
+      }
+    );
+
+    // Ensure worker is ready
+    await videoWorker.waitUntilReady();
+    console.log("✅ Worker Restarted Successfully!");
+
+    // Resume Queue
+    await videoQueue.resume();
+    console.log("▶️ Queue Resumed!");
 
     if (res) {
-      return res.json({ message: "Processing terminated successfully." });
+      return res.json({ message: "Processing terminated and restarted successfully." });
     } else {
-      console.log("✅ Termination completed. No response sent (Worker call).");
+      console.log("✅ Termination & Restart completed.");
     }
   } catch (error) {
     console.error("❌ Error during termination:", error);
@@ -248,6 +284,7 @@ const terminateProcessing = async (req, res) => {
     }
   }
 };
+
 
 redisConnection.on("connect", () => console.log("✅ Redis connected!"));
 redisConnection.on("error", (err) =>
@@ -259,4 +296,5 @@ module.exports = {
   videoWorker,
   terminateProcessing,
   completedJobs,
+  queueEvents
 };
