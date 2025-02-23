@@ -18,13 +18,27 @@ jobs:
       - name: Publish Image to docker hub
         run: docker push abhinavdogra003768/backend:latest 
  
-  deploy:
-    needs: build
-    runs-on: self-hosted 
-    steps:
-      - name: Pull image from docker hub
-        run: docker pull abhinavdogra003768/backend:latest 
-      - name: Delete old container
-        run: docker rm -f backend-container  
-      - name: Run Docker Container
-        run: docker run -d -p 8000:8000 --name backend-container -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' -e ALLOWED_ORIGINS='${{ secrets.ALLOWED_ORIGINS }}' abhinavdogra003768/backend
+deploy:
+  needs: build
+  runs-on: self-hosted 
+  steps:
+    - name: Pull latest image from Docker Hub
+      run: docker pull abhinavdogra003768/backend:latest 
+
+    - name: Stop and remove old container
+      run: |
+        docker rm -f backend-container || true
+        
+    - name: Remove old images with the same name
+      run: |
+        docker images -q abhinavdogra003768/backend | xargs -r docker rmi -f
+        
+    - name: Remove dangling images
+      run: |
+        docker image prune -af
+        
+    - name: Run new Docker container
+      run: docker run -d -p 8000:8000 --name backend-container \
+        -e MONGO_PASSWORD='${{ secrets.MONGO_PASSWORD }}' \
+        -e ALLOWED_ORIGINS='${{ secrets.ALLOWED_ORIGINS }}' \
+        abhinavdogra003768/backend:latest
