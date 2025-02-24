@@ -12,8 +12,7 @@ const compression = require("compression");
 const winston = require("winston");
 
 dotenv.config();
-require("./config/redis");
-require("./workers/videoWorker");
+
 
 // Import Routes
 const authRoutes = require("./routes/authRoutes.js");
@@ -23,8 +22,10 @@ const feedbackRoutes = require("./routes/feedbackRoutes");
 const { initSocket } = require("./services/notificationService.js");
 const userRoutes = require("./routes/userRoutes.js");
 
-// Initialize App
+// Initialize-App
 const app = express();
+require("./config/redis");
+require("./workers/videoWorker");
 const server = http.createServer(app);
 
 // Logger Setup
