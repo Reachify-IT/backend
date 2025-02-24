@@ -2,6 +2,7 @@ const puppeteer = require("puppeteer");
 const path = require("path");
 const fs = require("fs");
 const { PuppeteerScreenRecorder } = require("puppeteer-screen-recorder");
+dotenv.config();
 
 /**
  * Smoothly Scrolls the Page from Top to Bottom and Back
@@ -46,6 +47,7 @@ const recordWebsite = async (webUrl, outputDir) => {
 
   // Launch Puppeteer browser
   const browser = await puppeteer.launch({
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
     headless: false,
     defaultViewport: null,
     args: ["--disable-gpu", "--no-sandbox", "--disable-setuid-sandbox"],
