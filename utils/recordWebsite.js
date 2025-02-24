@@ -48,12 +48,18 @@ const recordWebsite = async (webUrl, outputDir) => {
 
   // Launch Puppeteer browser
   const browser = await puppeteer.launch({
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    headless: false,
+    headless: "new", // Fully headless mode for Ubuntu
     defaultViewport: null,
-    args: ["--disable-gpu", "--no-sandbox", "--disable-setuid-sandbox"],
+    args: [
+      "--disable-gpu",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage", // Prevent crashes
+      "--disable-accelerated-2d-canvas",
+      "--disable-software-rasterizer",
+    ],
   });
-
+  
   const page = await browser.newPage();
 
   // ✅ Set timeouts to prevent crashes
