@@ -1,5 +1,6 @@
 const puppeteer = require("puppeteer");
 const path = require("path");
+const dotenv = require("dotenv");
 const fs = require("fs");
 const { PuppeteerScreenRecorder } = require("puppeteer-screen-recorder");
 dotenv.config();
