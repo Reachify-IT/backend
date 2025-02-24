@@ -41,7 +41,7 @@ if (process.env.NODE_ENV !== "production") {
   logger.add(new winston.transports.Console({ format: winston.format.simple() }));
 }
 
-// Security & Performance Middlewares
+// Security & Performance Middlewaress
 app.use(helmet()); // Security headers
 app.use(compression()); // Response compression
 
