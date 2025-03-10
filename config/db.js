@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
-const dotenv = require("dotenv");
 const DynamicModel = require("../models/DynamicModel.js");
 
+const dotenv = require("dotenv");
 dotenv.config();
 
 let isConnected = false; // Track connection status

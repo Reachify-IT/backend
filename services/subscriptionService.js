@@ -1,9 +1,9 @@
 const User = require("../models/User");
 
 const PLAN_LIMITS = {
-  Silver: 2000,
-  Gold: 5000,
-  Diamond: 10000
+  Starter: 2000,
+  Pro: 5000,
+  Enterprise: 10000
 };
 
 // 🛠️ Check if user can upload more videos
@@ -13,7 +13,7 @@ exports.canUploadVideos = async (userId, videoCount) => {
 
   const maxLimit = PLAN_LIMITS[user.planDetails] || 0;
   const usedCount = user.videosCount || 0;
-  const newTotal = user.videosCount + videoCount;
+  const newTotal = usedCount + videoCount;
 
   if (newTotal > maxLimit) {
     return { 
@@ -35,8 +35,8 @@ exports.decrementVideoCount = async (userId, count) => {
   await User.findByIdAndUpdate(userId, { $inc: { videosCount: -count } });
 };
 
-// 🛠️ Upgrade User Plan
-exports.upgradePlan = async (userId, newPlan) => {
+// 🛠️ Upgrade User Plan and Save Payment History
+exports.upgradePlan = async (userId, newPlan, paymentDetails) => {
   const user = await User.findById(userId);
   if (!user) return { success: false, message: "User not found" };
 
@@ -49,7 +49,20 @@ exports.upgradePlan = async (userId, newPlan) => {
   }
 
   // ✅ Upgrade Plan
-  await User.findByIdAndUpdate(userId, { planDetails: newPlan });
+  user.planDetails = newPlan;
+  
+  // ✅ Reset Video Count on Upgrade
+  user.videosCount = 0;
+
+  // ✅ Store Payment Details in User's Payment History
+  user.paymentHistory.push({
+    orderId: paymentDetails.orderId,
+    amount: paymentDetails.amount,
+    status: paymentDetails.status,
+    date: new Date()
+  });
+
+  await user.save();
 
   return { success: true, message: `Plan upgraded to ${newPlan}` };
 };

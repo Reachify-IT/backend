@@ -18,7 +18,7 @@ let uploadedFiles = {
   camVideoPath: null,
 };
 
-const maxConcurrentTabs = 1;
+const maxConcurrentTabs = 5;
 
 // 🟢 Upload Excel File (Only `.xlsx`)
 exports.uploadExcel = async (req, res) => {
@@ -130,6 +130,7 @@ exports.startProcessing = async (req, res) => {
     uploadedFiles.excelPath = null;
     uploadedFiles.camVideoPath = null;
 
+    
     const checkJobCompletion = async (jobId) => {
       return new Promise((resolve, reject) => {
         console.log(`⏳ Waiting for job ${jobId} to complete...`);
@@ -150,22 +151,22 @@ exports.startProcessing = async (req, res) => {
 
     if (mergedUrls?.length > 0) {
       await incrementVideoCount(userId, mergedUrls.length);
-      sendNotification(
-        `✅ ${mergedUrls.length} video processing completed, Remaining slots: ${remaining} videos`
-      );
-      return res.status(200).json({
-        success: true,
-        mergedUrls,
-        message: `Videos processed successfully. Remaining slots: ${remaining}`,
-      });
+      sendNotification(userId, `✅ ${mergedUrls.length} videos processed successfully. Remaining slots: ${remaining}`);
+      return res
+        .status(200)
+        .json({
+          success: true,
+          mergedUrls,
+          message: `Videos processed successfully. Remaining slots: ${remaining}`,
+        });
     } else {
-      sendNotification("❌ No videos processed");
+      sendNotification(userId, "❌ Processing failed, no videos merged.");
       return res
         .status(500)
         .json({ error: "Processing failed, no videos merged." });
     }
   } catch (error) {
-    sendNotification("❌ Error processing videos");
+    sendNotification(userId, "❌ Error queuing process:");
     console.error("❌ Error queuing process:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }

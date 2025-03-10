@@ -13,11 +13,24 @@ const processExcel = (filePath) => {
 
     console.log("Extracted Data:", jsonData); // Debugging output
 
-    return jsonData.map((row) => row["websiteUrl"] || row["Website URL"]).filter((url) => url);
+    // Extract both Email and Name from each row
+    return jsonData
+      .map((row) => {
+        const email = row["Email"] || row["email"] || row["E-mail"]; // Handling different capitalizations
+        const name = row["Name"] || row["name"]; // Handling name variations
+        const websiteUrl = row["Website-Url"] || row["website"] || row["URL"]; // Handling website variations
+
+        if (email && name && websiteUrl) {
+          return { Email: email, Name: name, WebsiteUrl: websiteUrl };
+        }
+        return null; // Skip invalid rows
+      })
+      .filter((entry) => entry !== null); // Remove null entries
   } catch (error) {
     console.error("Error processing Excel file:", error);
     return [];
   }
 };
+
 
 module.exports = processExcel;

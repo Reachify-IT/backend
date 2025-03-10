@@ -37,6 +37,7 @@ exports.getCameraSettings = async (req, res) => {
 
 // Update Camera Settings
 exports.updateCameraSettings = async (req, res) => {
+  let userId;
   try {
     const userId = req.user.id; // Assuming user ID is extracted from auth middleware
     const { position, size } = req.body;
@@ -60,12 +61,12 @@ exports.updateCameraSettings = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    sendNotification("✅ Camera settings updated successfully!");
+    sendNotification(userId, "✅ Camera settings updated successfully!");
 
     res.status(200).json({ message: "Camera settings updated", cameraSettings: updatedUser.cameraSettings });
   } catch (error) {
     console.error("Error updating camera settings:", error);
-    sendNotification("✅ Camera settings update failed!");
+    sendNotification(userId, "✅ Camera settings update failed!");
     res.status(500).json({ message: "Server error" });
   }
 };

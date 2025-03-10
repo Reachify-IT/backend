@@ -6,6 +6,7 @@ class UserService {
     return await User.findOne({ email }).select("+password");
   }
 
+  // 🔹 Find User by ID
   static async findById(userId) {
     return await User.findById(userId);
   }
@@ -30,16 +31,39 @@ class UserService {
     return await User.findByIdAndUpdate(userId, { $set: updateData }, { new: true });
   }
 
+  // 🔹 Update User Plan (Auto-Upgrade)
+  static async updatePlan(userId, newPlan) {
+    return await User.findByIdAndUpdate(
+      userId,
+      { planDetails: newPlan },
+      { new: true }
+    );
+  }
+
+  // 🔹 Add Payment to User History
+  static async addPaymentToHistory(userId, paymentData) {
+    return await User.findByIdAndUpdate(
+      userId,
+      { $push: { paymentHistory: paymentData } }, // Append payment details
+      { new: true }
+    );
+  }
+
   // 🔹 Sanitize User Data (Prevents Password Exposure)
   static sanitizeUser(user) {
+    
     return {
       _id: user._id,
       username: user.username,
       email: user.email,
-      phoneNumber: user.phoneNumber, // Added phone number
+      phoneNumber: user.phoneNumber,
       role: user.role,
       planDetails: user.planDetails || "NoPlan",
+      videosCount: user.videosCount || 0,
+      cameraSettings: user.cameraSettings,
+      paymentHistory: user.paymentHistory || [], // Added payment history
     };
+
   }
 }
 

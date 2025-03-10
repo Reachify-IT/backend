@@ -1,9 +1,7 @@
 const puppeteer = require("puppeteer");
 const path = require("path");
-const dotenv = require("dotenv");
 const fs = require("fs");
 const { PuppeteerScreenRecorder } = require("puppeteer-screen-recorder");
-dotenv.config();
 
 /**
  * Smoothly Scrolls the Page from Top to Bottom and Back
@@ -17,20 +15,23 @@ const smoothScroll = async (page) => {
     // Smoothly scroll from top to bottom
     while (currentPosition < totalHeight) {
       window.scrollBy(0, scrollStep);
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // Increase delay for smoother effect
+      await new Promise((resolve) => setTimeout(resolve, 200)); // Faster delay
       currentPosition += scrollStep;
     }
 
-    // Stay at the footer for 20 seconds
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Pause at bottom
+    await new Promise((resolve) => setTimeout(resolve, 1000)); // Reduce pause
 
     // Smoothly scroll back from bottom to top
     while (currentPosition > 0) {
       window.scrollBy(0, -scrollStep);
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // Same smooth delay
+      await new Promise((resolve) => setTimeout(resolve, 200));
       currentPosition -= scrollStep;
     }
   });
+
+  // Reduce pause time at top
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 };
 
 
@@ -48,32 +49,20 @@ const recordWebsite = async (webUrl, outputDir) => {
 
   // Launch Puppeteer browser
   const browser = await puppeteer.launch({
-    headless: "new", // Fully headless mode for Ubuntu
+    headless: false,
     defaultViewport: null,
-    args: [
-      "--disable-gpu",
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage", // Prevent crashes
-      "--disable-accelerated-2d-canvas",
-      "--disable-software-rasterizer",
-    ],
+    args: ["--disable-gpu", "--no-sandbox", "--disable-setuid-sandbox"],
   });
-  
+
   const page = await browser.newPage();
 
-  // ✅ Set timeouts to prevent crashes
+  // ✅ Remove timeout limit
   await page.setDefaultNavigationTimeout(0);
   await page.setDefaultTimeout(0);
 
   try {
     console.log(`🌍 Navigating to ${webUrl}...`);
-    
-    // ✅ Wait for the page to be fully visible instead of a fixed timeout
-    await page.goto(webUrl, { waitUntil: "domcontentloaded" });
-
-    // Ensure that the body element is visible before proceeding
-    await page.waitForSelector("body", { visible: true });
+    await page.goto(webUrl, { waitUntil: "load" }); // 🛑 Wait until full load
 
     const outputPath = path.join(outputDir, `web_${Date.now()}.mp4`);
     const recorder = new PuppeteerScreenRecorder(page, {
@@ -83,7 +72,7 @@ const recordWebsite = async (webUrl, outputDir) => {
         width: 1280,
         height: 720,
       },
-      autopadDuration: 2, // Reduce extra padding duration
+      autopadDuration: 3,
     });
 
     console.log(`🎥 Recording started: ${webUrl}`);

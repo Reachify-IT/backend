@@ -3,6 +3,7 @@ const { sendNotification } = require("../services/notificationService");
 
 // 🔹 Submit Feedback
 const submitFeedback = async (req, res) => {
+  let userId;
   try {
     const { name, email, description, rating } = req.body;
     const userId = req.user.id; 
@@ -14,11 +15,13 @@ const submitFeedback = async (req, res) => {
     const feedback = new Feedback({ userId, name, email, description, rating });
     await feedback.save();
 
-    sendNotification("✅ Feedback submitted successfully!");
+    sendNotification(userId, "✅ Feedback submitted successfully!");
 
     res.status(201).json({ message: "Feedback submitted successfully", feedback });
   } catch (err) {
-    sendNotification("❌ Feedback submitted failed!");
+    if (userId){
+      sendNotification(userId, "❌ Feedback submitted failed!");
+    }
     res.status(500).json({ error: "Internal Server Error" });
   }
 };

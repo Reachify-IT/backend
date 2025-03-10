@@ -39,3 +39,4 @@ const authorizeRoles =
   };
 
 module.exports = { verifyToken, authorizeRoles };
+

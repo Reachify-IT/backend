@@ -68,8 +68,10 @@ const signin = async (req, res, next) => {
 
     // Generate Access Token
     const accessToken = generateToken(user._id);
-    sendNotification("✅ Login Successfully! 🚀");
     res.status(200).json({ accessToken, user: UserService.sanitizeUser(user) });
+    setTimeout(() => {
+      sendNotification(user._id, "✅ Login Successful! 🚀");
+    }, 1000);
   } catch (err) {
     next(err);
   }
@@ -88,6 +90,7 @@ const userDetails = async (req, res, next) => {
 
 
 const updateDetails = async (req, res, next) => {
+  let userId;
   try {
     const { username, email, phoneNumber } = req.body;
     const userId = req.user.id; // Get user ID from token
@@ -110,7 +113,7 @@ const updateDetails = async (req, res, next) => {
       phoneNumber,
     });
 
-    sendNotification("✅ User Details Updated Successfully! 🚀");
+    sendNotification(userId, "✅ User Details Updated Successfully! 🚀");
 
     res
       .status(200)
@@ -119,7 +122,9 @@ const updateDetails = async (req, res, next) => {
         user: UserService.sanitizeUser(updatedUser),
       });
   } catch (err) {
-    sendNotification("❌ User Details Update Failed! 🚀");
+    if (userId) {
+      sendNotification(userId, "❌ User Details Update Failed! 🚀");
+    }
     next(err);
   }
 };
