@@ -8,7 +8,7 @@ RUN apk update && apk add --no-cache \
     ca-certificates \
     ttf-freefont
 
-# Set the Puppeteer executable path (important for Alpine)
+# Set the Puppeteer executable path (important for Alpine)...
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 
