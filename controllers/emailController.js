@@ -1,7 +1,6 @@
 const axios = require("axios");
 const Mail = require("../models/mailSchema");
-const fs = require("fs");
-const processExcel = require("../utils/processExcel");
+
 const { refreshOutlookToken } = require("../services/OutlooktokenService");
 const nodemailer = require("nodemailer");
 const imapschema = require("../models/imapschema");
@@ -13,6 +12,7 @@ const tokenManager = require("../utils/tokenManager");
 const moment = require("moment");
 const { decryptPassword } = require("../utils/cryptoUtil");
 const { sendNotification } = require("../services/notificationService");
+const { default: processEmailService } = require("../services/APIService");
 
 
 const EMAIL_LIMITS = [
@@ -25,12 +25,20 @@ const EMAIL_LIMITS = [
 ];
 
 // microsoftGraph
-exports.sendBulkEmails = async ({ email, userId, s3Url }) => {
+exports.sendBulkEmails = async ({
+  email,
+  userId,
+  s3Url,
+  Name,
+  WebsiteUrl,
+  ClientCompany,
+  ClientDesignation,
+}) => {
   try {
-    console.log("🚀 SendBulkEmails Bulk Email Process Started...");
+    console.log("🚀 Bulk Email Process Started...");
+
     // ✅ Fetch sender's email & OAuth tokens
     const mailEntry = await Mail.findOne({ userId });
-    console.log("🚀 mailEntry", mailEntry);
     if (!mailEntry || !mailEntry.refreshToken) {
       return { message: "User not authenticated. Please login again." };
     }
@@ -48,120 +56,100 @@ exports.sendBulkEmails = async ({ email, userId, s3Url }) => {
 
     // ✅ Determine today's email limit
     const today = moment().startOf("day");
-
     if (!mailEntry.dailyEmailCount) {
       mailEntry.dailyEmailCount = { date: today.toDate(), count: 0 };
       await mailEntry.save();
     }
 
-    const accountAgeInDays = moment().diff(
-      moment(mailEntry.dailyEmailCount.date),
-      "days"
-    );
-    const emailLimit =
-      EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit ||
-      500;
+    const accountAgeInDays = moment().diff(moment(mailEntry.dailyEmailCount.date), "days");
+    const emailLimit = EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit || 500;
 
-    console.log(`📊 Account Age: ${accountAgeInDays} days`);
-    console.log(`📈 Today's Email Limit: ${emailLimit}`);
-
-    // ✅ Reset count if it's a new day
     if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
-      console.log("🔄 Resetting daily email count (new day)");
       mailEntry.dailyEmailCount.date = today.toDate();
       mailEntry.dailyEmailCount.count = 0;
       await mailEntry.save();
     }
 
-    // ✅ Stop if the limit is reached
     if (mailEntry.dailyEmailCount.count >= emailLimit) {
       console.warn("⛔ Daily email limit reached.");
-      sendNotification(userId,"⛔ Daily email limit reached. Try again tomorrow.");
+      sendNotification(userId, "⛔ Daily email limit reached. Try again tomorrow.");
       return { message: "Daily email limit reached. Try again tomorrow." };
     }
+
+    // ✅ Read Excel & Extract Data
+    const emailDataList = processExcel(filePath);
+    if (!emailDataList.length) {
+      return { message: "No valid email data found in the Excel file." };
+    }
+
+    console.log(`✅ Found ${emailDataList.length} valid email entries.`);
+
+    if (successCount >= emailLimit) return { message: "Email limit reached" };
+
+
+    const airesult = await processEmailService({
+      "my_company": "Reachify Innovations",
+      "my_designation": "CTO",
+      "my_name": "Abhinav Dogra",
+      "my_mail": "info@reachifyinnovations.com",
+      "my_work": "Software development and website optimization",
+      "my_cta_link": "https://www.reachifyinnovations.com/contactus",
+      client_name: Name,
+      client_company: ClientCompany,
+      client_designation: ClientDesignation,
+      client_mail: email,
+      client_website: WebsiteUrl,
+      video_path: s3Url
+    });
+
+    console.log("📩 AI Result:", airesult);
+
+
+    console.log("📩 Sending emails...");
 
     let successCount = 0;
     let failureCount = 0;
     let failedEmails = [];
 
-    // ✅ Send emails using Microsoft Graph API
-    console.log(`📨 Sending email to: ${email}`);
-
-    const htmlEmailTemplate = `
-      <html>
-      <head>
-          <style>
-              body { font-family: Arial, sans-serif; background-color: #f9f9f9; margin: 0; padding: 0; }
-              .container { max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; background-color: #fff; text-align: center; }
-              h2 { font-size: 18px; color: #333; margin-bottom: 10px; }
-              p { font-size: 14px; line-height: 20px; color: #666; }
-              .cta-button { 
-                  display: inline-block; 
-                  background-color: #4CAF50; 
-                  color: white; 
-                  padding: 10px 20px; 
-                  text-decoration: none; 
-                  font-size: 16px; 
-                  border-radius: 5px;
-                  margin: 10px 0;
-              }
-              .cta-button:hover { background-color: #45a049; }
-          </style>
-      </head>
-      <body>
-          <div class="container">
-              <h2>Time to Elevate Your Website, ${email}!</h2>
-              <h1 style="font-size: 24px; font-weight: bold; color: #1E40AF;">Mail Info</h1>
-              <p>Your website has great potential. Let's optimize it together!</p>
-              <a href="${s3Url}" class="cta-button">Show Video</a> <br>
-              <a href="https://www.reachifyinnovations.com/contactus" class="cta-button">Schedule a Call</a>
-          </div>
-      </body>
-      </html>`;
-
-    const emailData = {
-      message: {
-        subject: "Bulk Email from Outlook API",
-        body: { contentType: "HTML", content: htmlEmailTemplate },
-        toRecipients: [{ emailAddress: { address: email } }],
-        from: { emailAddress: { address: mailEntry.email } },
-        replyTo: [{ emailAddress: { address: mailEntry.email } }],
-      },
-    };
-
-    try {
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.random() * (10000 - 5000) + 5000)
-      ); // ✅ Delay 5-10 sec
-
-      await axios.post(
-        "https://graph.microsoft.com/v1.0/me/sendMail",
-        emailData,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
+    // ✅ Send Emails for Each Entry
+    for (const emailData of emailDataList) {
+      try {
+        // ✅ Prepare Email Data for Microsoft Outlook API
+        const emailPayload = {
+          message: {
+            subject: airesult.subject,
+            body: { contentType: "HTML", content: airesult.cleaned_html },
+            toRecipients: [{ emailAddress: { address: emailData.Email } }],
+            from: { emailAddress: { address: mailEntry.email } },
           },
-        }
-      );
+        };
 
-      console.log(`✅ Email sent to: ${email}`);
-      sendNotification(userId,`✅ Email sent to: ${email}`);
-      successCount++;
+        // ✅ Introduce Delay (Prevent Outlook Rate Limiting)
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * (10000 - 5000) + 5000));
 
-      // ✅ Update Daily Email Count
-      await Mail.updateOne(
-        { userId },
-        {
-          $set: { "dailyEmailCount.date": new Date() },
-          $inc: { "dailyEmailCount.count": 1 },
-        }
-      );
-    } catch (error) {
-      console.error(`❌ Failed to send email to ${email}:`, error.message);
-      sendNotification(userId,`❌ Failed to send email to ${email}`);
-      failureCount++;
-      failedEmails.push({ email: email, reason: error.message });
+        // ✅ Send Email
+        await axios.post("https://graph.microsoft.com/v1.0/me/sendMail", emailPayload, {
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        });
+
+        console.log(`✅ Email sent to: ${emailData.Email}`);
+        sendNotification(userId, `✅ Email sent to: ${emailData.Email}`);
+        successCount++;
+
+        // ✅ Update Daily Email Count
+        await Mail.updateOne(
+          { userId },
+          {
+            $set: { "dailyEmailCount.date": new Date() },
+            $inc: { "dailyEmailCount.count": 1 },
+          }
+        );
+      } catch (error) {
+        console.error(`❌ Failed to send email to ${emailData.Email}:`, error.message);
+        sendNotification(userId, `❌ Failed to send email to ${emailData.Email}`);
+        failureCount++;
+        failedEmails.push({ email: emailData.Email, reason: error.message });
+      }
     }
 
     return {
@@ -177,7 +165,15 @@ exports.sendBulkEmails = async ({ email, userId, s3Url }) => {
 };
 
 // googleconst
-exports.sendEmail = async ({ email, userId, s3Url }) => {
+exports.sendEmail = async ({
+  email,
+  userId,
+  s3Url,
+  Name,
+  WebsiteUrl,
+  ClientCompany,
+  ClientDesignation,
+ }) => {
   console.log("🚀 Bulk Email Process Started...");
 
   console.log("🚀 email", email);
@@ -244,9 +240,31 @@ exports.sendEmail = async ({ email, userId, s3Url }) => {
     // ✅ Stop if the limit is reached
     if (mailEntry.dailyEmailCount.count >= emailLimit) {
       console.warn("⛔ Daily email limit reached.");
-      sendNotification(userId,"⛔ Daily email limit reached. Try again tomorrow.");
+      sendNotification(
+        userId,
+        "⛔ Daily email limit reached. Try again tomorrow."
+      );
       return { message: "Daily email limit reached. Try again tomorrow." };
     }
+
+    const airesult = await processEmailService({
+      "my_company": "Reachify Innovations",
+      "my_designation": "CTO",
+      "my_name": "Abhinav Dogra",
+      "my_mail": "info@reachifyinnovations.com",
+      "my_work": "Software development and website optimization",
+      "my_cta_link": "https://www.reachifyinnovations.com/contactus",
+      client_name: Name,
+      client_company: ClientCompany,
+      client_designation: ClientDesignation,
+      client_mail: email,
+      client_website: WebsiteUrl,
+      video_path: s3Url
+    });
+
+    console.log("📩 AI Result:", airesult);
+
+    
 
     console.log(`📨 Sending email to: ${email}`);
 
@@ -287,11 +305,11 @@ exports.sendEmail = async ({ email, userId, s3Url }) => {
     const message = [
       `From: ${senderEmail}`,
       `To: ${email}`,
-      `Subject: Improve Your Website`,
+      `Subject: ${airesult.subject}`,
       "MIME-Version: 1.0",
       "Content-Type: text/html; charset=UTF-8",
       "",
-      htmlEmailTemplate,
+      airesult.cleaned_html,
     ].join("\n");
 
     // ✅ Base64 Encode Email
@@ -313,7 +331,7 @@ exports.sendEmail = async ({ email, userId, s3Url }) => {
       });
 
       console.log(`✅ Email sent to: ${email}`);
-      sendNotification(userId,`✅ Email sent to: ${email}`);
+      sendNotification(userId, `✅ Email sent to: ${email}`);
 
       // ✅ Update Daily Email Count
       await googlemailSchema.updateOne(
@@ -330,7 +348,7 @@ exports.sendEmail = async ({ email, userId, s3Url }) => {
       };
     } catch (error) {
       console.error(`❌ Failed to send email to ${email}:`, error.message);
-      sendNotification(userId,`❌ Failed to send email to ${email}`);
+      sendNotification(userId, `❌ Failed to send email to ${email}`);
       return {
         message: "Failed to send email",
         emailFailed: email,
@@ -344,7 +362,16 @@ exports.sendEmail = async ({ email, userId, s3Url }) => {
 };
 
 // sendEmailIMAP
-exports.sendEmailIMAP = async ({ email, userId, s3Url }) => {
+exports.sendEmailIMAP = async ({
+  email,
+  userId,
+  s3Url,
+  Name,
+  WebsiteUrl,
+  ClientCompany,
+  ClientDesignation,
+}) => {
+  console.log("in mail controller", email, Name, WebsiteUrl, ClientCompany, ClientDesignation);
   console.log("🚀 IMAP Bulk Email Process Started...");
   try {
     let imapConfig = await imapschema.findOne({ userId });
@@ -396,7 +423,10 @@ exports.sendEmailIMAP = async ({ email, userId, s3Url }) => {
     // ✅ Stop if the limit is reached
     if (imapConfig.dailyEmailCount.count >= emailLimit) {
       console.warn("⛔ Daily email limit reached.");
-      sendNotification(userId,"⛔ Daily email limit reached. Try again tomorrow.");
+      sendNotification(
+        userId,
+        "⛔ Daily email limit reached. Try again tomorrow."
+      );
       return { message: "Daily email limit reached. Try again tomorrow." };
     }
 
@@ -416,6 +446,23 @@ exports.sendEmailIMAP = async ({ email, userId, s3Url }) => {
     let failedEmails = [];
 
     if (successCount >= emailLimit) return { message: "Email limit reached" };
+
+    const airesult = await processEmailService({
+      "my_company": "Reachify Innovations",
+      "my_designation": "CTO",
+      "my_name": "Abhinav Dogra",
+      "my_mail": "info@reachifyinnovations.com",
+      "my_work": "Software development and website optimization",
+      "my_cta_link": "https://www.reachifyinnovations.com/contactus",
+      client_name: Name,
+      client_company: ClientCompany,
+      client_designation: ClientDesignation,
+      client_mail: email,
+      client_website: WebsiteUrl,
+      video_path: s3Url
+    });
+
+    console.log("📩 AI Result:", airesult);
 
     console.log(`📨 Sending email to: ${email}`);
 
@@ -458,8 +505,8 @@ exports.sendEmailIMAP = async ({ email, userId, s3Url }) => {
     const mailOptions = {
       from: imapConfig.email,
       to: email,
-      subject: "Improve Your Website",
-      html: htmlEmailTemplate,
+      subject: airesult.subject,
+      html: airesult.cleaned_html,
     };
 
     try {
@@ -468,7 +515,7 @@ exports.sendEmailIMAP = async ({ email, userId, s3Url }) => {
       );
       await transporter.sendMail(mailOptions);
       console.log(`✅ Email sent successfully to ${email}`);
-      sendNotification(userId,`✅ Email sent successfully to ${email}`);
+      sendNotification(userId, `✅ Email sent successfully to ${email}`);
       successCount++;
       // ✅ Atomic Update to Prevent Race Conditions
       await imapschema.updateOne(
@@ -480,7 +527,10 @@ exports.sendEmailIMAP = async ({ email, userId, s3Url }) => {
       );
     } catch (err) {
       console.error(`❌ Failed to send email to ${email}:`, err);
-      sendNotification(userId,`❌ Failed to send email to ${email}: ${err.message}`);
+      sendNotification(
+        userId,
+        `❌ Failed to send email to ${email}: ${err.message}`
+      );
       failureCount++;
       failedEmails.push({ email: email, reason: err.message });
     }
@@ -550,8 +600,7 @@ exports.getEmailInfo = async (req, res) => {
 exports.getEmailInfoIMAP = async (req, res) => {
   try {
     const userId = req.user.id;
-    const imapConfig = await imapschema.findOne
-    ({ userId });
+    const imapConfig = await imapschema.findOne({ userId });
 
     if (!imapConfig) {
       return res.status(200).json({
@@ -567,16 +616,8 @@ exports.getEmailInfoIMAP = async (req, res) => {
       status: "success",
       email: email,
     });
-
-  }
-  catch (error) {
+  } catch (error) {
     console.error("❌ Get Email Info Error:", error.message);
     res.status(500).json({ error: "Failed to get email info" });
   }
-
-}
-
-
-
-
-
+};

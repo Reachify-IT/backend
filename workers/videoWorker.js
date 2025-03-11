@@ -23,25 +23,33 @@ const router = express.Router();
 const maxConcurrency = Math.max(1, os.cpus().length - 1);
 let terminationRequested = false;
 
+
 const redisConnection = new Redis(process.env.REDIS_URL, {
   tls: { rejectUnauthorized: false },
   maxRetriesPerRequest: null,
   enableOfflineQueue: true,
-  lazyConnect: true,
+  lazyConnect: true, // Connect only when needed
   retryStrategy: (times) => Math.min(times * 50, 2000),
   reconnectOnError: (err) => {
     console.error("❌ Redis Connection Error:", err.message);
-    return true;
+    return true; // Auto-reconnect
   },
+  maxmemory: "500mb", // Prevent excessive memory usage
+  keepAlive: 5000, // Keep connection alive
 });
 
+// Optimized Job Queue
 const videoQueue = new Queue("videoProcessing", {
   connection: redisConnection,
   defaultJobOptions: {
-    removeOnComplete: true,
-    removeOnFail: true,
+    removeOnComplete: 100, // Keep last 100 jobs for debugging
+    removeOnFail: 50, // Store only last 50 failed jobs
     attempts: 3,
     backoff: { type: "exponential", delay: 5000 },
+  },
+  limiter: {
+    max: 5, // Process max 5 jobs per second
+    duration: 1000, // Limits Redis command hits
   },
 });
 
@@ -158,6 +166,10 @@ const processJob = async (job) => {
 
         console.log("🔍 Matched Row:", matchedRow);
         const recipientEmail = matchedRow?.Email;
+        const Name = matchedRow?.Name;
+        const WebsiteUrl = matchedRow?.WebsiteUrl;
+        const ClientCompany = matchedRow?.ClientCompany;
+        const ClientDesignation = matchedRow?.ClientDesignation;
         console.log("📧 Recipient Email:", recipientEmail);
 
 
@@ -172,13 +184,13 @@ const processJob = async (job) => {
 
           try {
             if (googlemail) {
-               await sendEmail({ email: recipientEmail, userId, s3Url });
+               await sendEmail({ email: recipientEmail, userId, s3Url,Name, WebsiteUrl, ClientCompany, ClientDesignation});
                console.log("📧 Email sent to Google Mail");
             } else if (microsoft) {
-               await sendBulkEmails({ email: recipientEmail, userId, s3Url });
+               await sendBulkEmails({ email: recipientEmail, userId, s3Url,Name, WebsiteUrl, ClientCompany, ClientDesignation});
                 console.log("📧 Email sent to Microsoft");
             } else if (imap) {
-              await sendEmailIMAP({ email: recipientEmail, userId, s3Url });
+              await sendEmailIMAP({ email: recipientEmail, userId, s3Url,Name, WebsiteUrl, ClientCompany, ClientDesignation});
               console.log("📧 Email sent to IMAP");
             } else {
               console.warn(`⚠️ No email service found for URL: ${webUrl}. Skipping email.`);

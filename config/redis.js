@@ -8,6 +8,7 @@ const redisConnection = new Redis(process.env.REDIS_URL, {
   tls: { rejectUnauthorized: false }, // Required for Upstash
 });
 
+
 // Create BullMQ queue
 const videoQueue = new Queue("videoProcessing", { connection: redisConnection });
 

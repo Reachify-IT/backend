@@ -10,13 +10,26 @@ const {
   incrementVideoCount,
 } = require("../services/subscriptionService");
 const { sendNotification } = require("../services/notificationService");
-const { QueueEvents } = require("bullmq");
+const moment = require("moment");
+const imapschema = require("../models/imapschema");
+const googlemailSchema = require("../models/googlemailSchema");
+const mailSchema = require("../models/mailSchema");
 
 
 let uploadedFiles = {
   excelPath: null,
   camVideoPath: null,
 };
+
+const EMAIL_LIMITS = [
+  { days: 3, limit: 30 },
+  { days: 7, limit: 70 },
+  { days: 14, limit: 200 },
+  { days: 30, limit: 500 },
+  { days: 60, limit: 1000 }, // Example: Increase limit after 60 days
+  { days: 90, limit: 2000 }, // Example: Further increase at 90 days
+];
+
 
 const maxConcurrentTabs = 5;
 
@@ -70,6 +83,8 @@ const waitForQueueReady = async () => {
 };
 
 exports.startProcessing = async (req, res) => {
+  let userId; // Declare userId outside try block to be accessible in catch block
+
   try {
     console.log("⚠️ startProcessing() was called! Checking why...");
 
@@ -90,6 +105,55 @@ exports.startProcessing = async (req, res) => {
     console.log("📂 Processing Excel File:", uploadedFiles.excelPath);
     console.log("📹 Processing Camera Video:", uploadedFiles.camVideoPath);
 
+    userId = req.user?.id; // Assign userId from request
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized: User ID missing" });
+    }
+
+    const microSoftMail = await mailSchema.findOne({ userId });
+    const googleMail = await googlemailSchema.findOne({ userId });
+    const imapMail = await imapschema.findOne({ userId });
+
+    // ✅ Check if the user has any mail entry
+    const mailEntry = microSoftMail || googleMail || imapMail;
+
+    console.log("🚀 mailEntry", mailEntry);
+
+    if (!mailEntry) {
+      return res
+        .status(401)
+        .json({ error: "Unauthorized: No email account found for this user." });
+    }
+
+    // ✅ Get today's date
+    const today = moment().startOf("day");
+
+    // ✅ Initialize dailyEmailCount if not present
+    if (!mailEntry.dailyEmailCount) {
+      mailEntry.dailyEmailCount = { date: today.toDate(), count: 0 };
+      await mailEntry.save();
+    }
+
+    // ✅ Determine the email limit based on account age
+    const accountAgeInDays = moment().diff(moment(mailEntry.dailyEmailCount.date), "days");
+    const emailLimit = EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit || 500;
+
+    // ✅ Reset daily count if the date is past
+    if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
+      mailEntry.dailyEmailCount.date = today.toDate();
+      mailEntry.dailyEmailCount.count = 0;
+      await mailEntry.save();
+    }
+
+    // ✅ Check if the daily limit is reached **BEFORE** processing anything
+    if (mailEntry.dailyEmailCount.count >= emailLimit) {
+      console.warn("⛔ Daily email limit reached.");
+      sendNotification(userId, "⛔ Daily email limit reached. Try again tomorrow.");
+      return res.status(403).json({ message: "Daily email limit reached. Try again tomorrow." });
+    }
+
+
+
     // ✅ Ensure queue is fully cleared before adding a new job
     await waitForQueueReady();
 
@@ -100,16 +164,11 @@ exports.startProcessing = async (req, res) => {
         .json({ error: "No valid URLs found in the Excel file" });
     }
 
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: "Unauthorized: User ID missing" });
-    }
+   
+
 
     const videoCount = websiteUrls.length;
-    const { allowed, message, remaining } = await canUploadVideos(
-      userId,
-      videoCount
-    );
+    const { allowed, message, remaining } = await canUploadVideos(userId, videoCount);
     if (!allowed) {
       return res.status(403).json({ error: message });
     }
@@ -130,9 +189,8 @@ exports.startProcessing = async (req, res) => {
     uploadedFiles.excelPath = null;
     uploadedFiles.camVideoPath = null;
 
-    
     const checkJobCompletion = async (jobId) => {
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         console.log(`⏳ Waiting for job ${jobId} to complete...`);
 
         // Listen for the job completion
@@ -152,25 +210,25 @@ exports.startProcessing = async (req, res) => {
     if (mergedUrls?.length > 0) {
       await incrementVideoCount(userId, mergedUrls.length);
       sendNotification(userId, `✅ ${mergedUrls.length} videos processed successfully. Remaining slots: ${remaining}`);
-      return res
-        .status(200)
-        .json({
-          success: true,
-          mergedUrls,
-          message: `Videos processed successfully. Remaining slots: ${remaining}`,
-        });
+      return res.status(200).json({
+        success: true,
+        mergedUrls,
+        message: `Videos processed successfully. Remaining slots: ${remaining}`,
+      });
     } else {
       sendNotification(userId, "❌ Processing failed, no videos merged.");
-      return res
-        .status(500)
-        .json({ error: "Processing failed, no videos merged." });
+      return res.status(500).json({ error: "Processing failed, no videos merged." });
     }
   } catch (error) {
-    sendNotification(userId, "❌ Error queuing process:");
+    // ✅ Now userId is accessible inside catch block
+    if (userId) {
+      sendNotification(userId, "❌ Error queuing process.");
+    }
     console.error("❌ Error queuing process:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 };
+
 
 exports.terminateProcessing = async (req, res) => {
   try {

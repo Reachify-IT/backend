@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node cluster.js",
-    "dev": "nodemon cluster.js",
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "build": "webpack --config webpack.config.js",
     "lint": "eslint .",
     "test": "jest"

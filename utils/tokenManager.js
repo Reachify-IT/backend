@@ -18,7 +18,10 @@ exports.getAccessToken = async (email, refreshToken) => {
     console.log("✅ New Access Token:", newAccessToken.token);
 
     // Save the updated access token in DB
-    await Mail.findOneAndUpdate({ email }, { googleAccessToken: newAccessToken.token });
+    await Mail.findOneAndUpdate(
+      { email },
+      { googleAccessToken: newAccessToken.token }
+    );
 
     return newAccessToken.token;
   } catch (error) {
