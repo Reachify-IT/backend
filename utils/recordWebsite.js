@@ -49,7 +49,7 @@ const recordWebsite = async (webUrl, outputDir) => {
 
   // Launch Puppeteer browser
   const browser = await puppeteer.launch({
-    headless: false,
+    headless: true,
     defaultViewport: null,
     args: ["--disable-gpu", "--no-sandbox", "--disable-setuid-sandbox"],
   });
