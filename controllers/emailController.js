@@ -23,7 +23,8 @@ const EMAIL_LIMITS = [
   { days: 90, limit: 2000 }, // Example: Further increase at 90 days
 ];
 
-// microsoftGraph
+
+
 exports.sendBulkEmails = async ({
   email,
   userId,
@@ -36,7 +37,7 @@ exports.sendBulkEmails = async ({
   try {
     console.log("🚀 Bulk Email Process Started...");
 
-    // ✅ Fetch sender's email & OAuth tokens
+    // Fetch sender's email & OAuth tokens
     const mailEntry = await Mail.findOne({ userId });
     if (!mailEntry || !mailEntry.refreshToken) {
       return { message: "User not authenticated. Please login again." };
@@ -44,42 +45,37 @@ exports.sendBulkEmails = async ({
 
     console.log(`📩 Using email: ${mailEntry.email}`);
 
-    // ✅ Refresh Outlook Access Token
+    // Refresh Outlook Access Token
     const accessToken = await refreshOutlookToken(mailEntry.refreshToken);
     if (!accessToken) {
-      return {
-        message:
-          "Failed to refresh Outlook access token. Re-authentication required.",
-      };
+      return { message: "Failed to refresh Outlook access token. Re-authentication required." };
     }
 
-    // ✅ Determine today's email limit
+    let successCount = 0;
+    let failureCount = 0;
+    let failedEmails = [];
+
     const today = moment().startOf("day");
     if (!mailEntry.dailyEmailCount) {
       mailEntry.dailyEmailCount = { date: today.toDate(), count: 0 };
       await mailEntry.save();
     }
 
-    // ✅ Count the number of unique days where emails were sent
+    // Count the number of unique days emails were sent
     const sentDays = await Mail.countDocuments({
       userId,
-      "dailyEmailCount.count": { $gt: 0 }, // Only count days where emails were sent
+      "dailyEmailCount.count": { $gt: 0 },
     });
 
-    // ✅ Find the appropriate email limit based on the sent days
-    const emailLimit =
-      EMAIL_LIMITS.find((limit) => sentDays <= limit.days)?.limit || 500;
+    // Determine email limit
+    const emailLimit = EMAIL_LIMITS.find((limit) => sentDays <= limit.days)?.limit || 500;
 
     console.log(`📊 Total Days Sent Emails: ${sentDays} days`);
     console.log(`📈 Today's Email Limit: ${emailLimit}`);
 
     if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
-      // ✅ If the previous day's count was greater than 0, it means an email was sent on that day
       if (mailEntry.dailyEmailCount.count > 0) {
-        await Mail.updateOne(
-          { userId },
-          { $inc: { totalSentDays: 1 } } // ✅ Increment the unique sent days counter
-        );
+        await Mail.updateOne({ userId }, { $inc: { totalSentDays: 1 } });
       }
       mailEntry.dailyEmailCount.date = today.toDate();
       mailEntry.dailyEmailCount.count = 0;
@@ -88,24 +84,11 @@ exports.sendBulkEmails = async ({
 
     if (mailEntry.dailyEmailCount.count >= emailLimit) {
       console.warn("⛔ Daily email limit reached.");
-      sendNotification(
-        userId,
-        "⛔ Daily email limit reached. Try again tomorrow."
-      );
+      sendNotification(userId, "⛔ Daily email limit reached. Try again tomorrow.");
       return { message: "Daily email limit reached. Try again tomorrow." };
     }
 
-    // ✅ Read Excel & Extract Data
-    const emailDataList = processExcel(filePath);
-    if (!emailDataList.length) {
-      return { message: "No valid email data found in the Excel file." };
-    }
-
-    console.log(`✅ Found ${emailDataList.length} valid email entries.`);
-
-    if (successCount >= emailLimit) return { message: "Email limit reached" };
-
-    const airesult = await processEmailService({
+    const aiResult = await processEmailService({
       my_company: "Reachify Innovations",
       my_designation: "CTO",
       my_name: "Abhinav Dogra",
@@ -120,70 +103,44 @@ exports.sendBulkEmails = async ({
       video_path: s3Url,
     });
 
-    console.log("📩 AI Result:", airesult);
+    console.log("📩 AI Result:", aiResult);
 
-    console.log("📩 Sending emails...");
+    console.log(`📡 Sending email to ${email}...`);
+    try {
+      const emailPayload = {
+        message: {
+          subject: aiResult.subject,
+          body: { contentType: "HTML", content: aiResult.cleaned_html },
+          toRecipients: [{ emailAddress: { address: email } }],
+          from: { emailAddress: { address: mailEntry.email } },
+        },
+      };
 
-    let successCount = 0;
-    let failureCount = 0;
-    let failedEmails = [];
+      // Delay to prevent rate limiting
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * (10000 - 5000) + 5000));
 
-    console.log(`📡 Calling processEmailService for ${emailData.Email}...`);
+      // Send Email
+      await axios.post("https://graph.microsoft.com/v1.0/me/sendMail", emailPayload, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-    // ✅ Send Emails for Each Entry
-    for (const emailData of emailDataList) {
-      try {
-        // ✅ Prepare Email Data for Microsoft Outlook API
-        const emailPayload = {
-          message: {
-            subject: airesult.subject,
-            body: { contentType: "HTML", content: airesult.cleaned_html },
-            toRecipients: [{ emailAddress: { address: emailData.Email } }],
-            from: { emailAddress: { address: mailEntry.email } },
-          },
-        };
+      console.log(`✅ Email sent to: ${email}`);
+      sendNotification(userId, `✅ Email sent to: ${email}`);
+      successCount++;
 
-        // ✅ Introduce Delay (Prevent Outlook Rate Limiting)
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.random() * (10000 - 5000) + 5000)
-        );
-
-        // ✅ Send Email
-        await axios.post(
-          "https://graph.microsoft.com/v1.0/me/sendMail",
-          emailPayload,
-          {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-
-        console.log(`✅ Email sent to: ${emailData.Email}`);
-        sendNotification(userId, `✅ Email sent to: ${emailData.Email}`);
-        successCount++;
-
-        // ✅ Update Daily Email Count
-        await Mail.updateOne(
-          { userId },
-          {
-            $set: { "dailyEmailCount.date": new Date() },
-            $inc: { "dailyEmailCount.count": 1 },
-          }
-        );
-      } catch (error) {
-        console.error(
-          `❌ Failed to send email to ${emailData.Email}:`,
-          error.message
-        );
-        sendNotification(
-          userId,
-          `❌ Failed to send email to ${emailData.Email}`
-        );
-        failureCount++;
-        failedEmails.push({ email: emailData.Email, reason: error.message });
-      }
+      // Update Daily Email Count
+      await Mail.updateOne(
+        { userId },
+        { $set: { "dailyEmailCount.date": new Date() }, $inc: { "dailyEmailCount.count": 1 } }
+      );
+    } catch (error) {
+      console.error(`❌ Failed to send email to ${email}:`, error.message);
+      sendNotification(userId, `❌ Failed to send email to ${email}`);
+      failureCount++;
+      failedEmails.push({ email, reason: error.message });
     }
 
     return {

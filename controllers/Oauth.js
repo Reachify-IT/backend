@@ -99,7 +99,7 @@ exports.microsoftAuthCallback = async (req, res) => {
 
     // Redirect user to frontend with the token
     res.redirect(
-      `http://localhost:5173/email-page?email=${decodedIdToken.email}&provider=outlook`
+      `http://localhost:5173/home`
     );
   } catch (error) {
     console.error("❌ OAuth Error:", error.response?.data || error.message);
@@ -182,7 +182,7 @@ exports.googleCallback = async (req, res) => {
     console.log("✅ OAuth tokens saved successfully!");
 
     // Redirect frontend with success response
-    const redirectUrl = `http://localhost:5173/email-page?email=${encodeURIComponent(email)}&provider=google`;
+    const redirectUrl = `http://localhost:5173/home`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("❌ OAuth Callback Error:", error);
