@@ -9,30 +9,44 @@ const { PuppeteerScreenRecorder } = require("puppeteer-screen-recorder");
 const smoothScroll = async (page) => {
   await page.evaluate(async () => {
     const totalHeight = document.body.scrollHeight;
-    const scrollStep = window.innerHeight / 2; // Slower scrolling for smoothness
     let currentPosition = 0;
+    let scrollStep = window.innerHeight * 0.3; // Start with a smaller step
+    let scrollingDown = true;
 
-    // Smoothly scroll from top to bottom
-    while (currentPosition < totalHeight) {
-      window.scrollBy(0, scrollStep);
-      await new Promise((resolve) => setTimeout(resolve, 200)); // Faster delay
-      currentPosition += scrollStep;
-    }
+    const getRandomDelay = () => Math.random() * 600 + 400; // Random delay between 400-1000ms
+    const getScrollStep = () => Math.random() * window.innerHeight * 0.3 + window.innerHeight * 0.2; // Vary scroll step size
 
-    // Pause at bottom
-    await new Promise((resolve) => setTimeout(resolve, 1000)); // Reduce pause
+    // Smooth scrolling function
+    const smoothMove = async (direction) => {
+      while (scrollingDown ? currentPosition < totalHeight : currentPosition > 0) {
+        window.scrollBy(0, direction * scrollStep);
+        currentPosition += direction * scrollStep;
 
-    // Smoothly scroll back from bottom to top
-    while (currentPosition > 0) {
-      window.scrollBy(0, -scrollStep);
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      currentPosition -= scrollStep;
-    }
+        // Simulate human reading behavior
+        if (Math.random() > 0.7) {
+          await new Promise((resolve) => setTimeout(resolve, getRandomDelay()));
+        }
+
+        scrollStep = getScrollStep(); // Adjust step size dynamically
+        await new Promise((resolve) => setTimeout(resolve, getRandomDelay() / 2));
+      }
+    };
+
+    // Scroll down
+    await smoothMove(1);
+
+    // Pause at the bottom
+    await new Promise((resolve) => setTimeout(resolve, getRandomDelay() * 2));
+
+    // Scroll back up
+    scrollingDown = false;
+    await smoothMove(-1);
   });
 
-  // Reduce pause time at top
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // Pause at the top before ending
+  await new Promise((resolve) => setTimeout(resolve, 1500));
 };
+
 
 
 /**

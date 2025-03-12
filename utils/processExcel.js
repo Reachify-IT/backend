@@ -12,21 +12,21 @@ const processExcel = (filePath) => {
 
     console.log("📂 Extracted Data:", jsonData); // Debugging output
 
-    // ✅ Extract Required Fields
-    return jsonData
-      .map((row) => {
-        const email = row["Email"] || row["email"] || row["E-mail"]; // Handling different capitalizations
-        const name = row["Name"] || row["name"]; // Handling name variations
-        const websiteUrl = row["Website-Url"] || row["website"] || row["URL"]; 
-        const ClientCompany = row["Client-Company"] || row["ClientCompany"];
-        const ClientDesignation = row["Client-Designation"] || row["ClientDesignation"];
+    // ✅ Process every row, including duplicates
+    return jsonData.map((row, index) => {
+      const email = row["Email"] || row["email"] || row["E-mail"]; // Handling different capitalizations
+      const name = row["Name"] || row["name"];
+      const websiteUrl = row["Website-Url"] || row["website"] || row["URL"];
+      const ClientCompany = row["Client-Company"] || row["ClientCompany"];
+      const ClientDesignation = row["Client-Designation"] || row["ClientDesignation"];
 
-        if (email && name && websiteUrl) {
-          return { Email: email, Name: name, WebsiteUrl: websiteUrl, ClientCompany, ClientDesignation };
-        }
-        return null; // Skip invalid rows
-      })
-      .filter((entry) => entry !== null); // Remove invalid rows
+      // ✅ If required fields are missing, mark row as invalid
+      if (!email || !name || !websiteUrl) {
+        return { Row: index + 1, Status: "Invalid", Email: email || "Missing", Name: name || "Missing", WebsiteUrl: websiteUrl || "Missing" };
+      }
+
+      return { Row: index + 1, Email: email, Name: name, WebsiteUrl: websiteUrl, ClientCompany, ClientDesignation };
+    });
 
   } catch (error) {
     console.error("❌ Error processing Excel file:", error.message);

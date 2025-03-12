@@ -14,7 +14,6 @@ const { decryptPassword } = require("../utils/cryptoUtil");
 const { sendNotification } = require("../services/notificationService");
 const { default: processEmailService } = require("../services/APIService");
 
-
 const EMAIL_LIMITS = [
   { days: 3, limit: 30 },
   { days: 7, limit: 70 },
@@ -61,10 +60,27 @@ exports.sendBulkEmails = async ({
       await mailEntry.save();
     }
 
-    const accountAgeInDays = moment().diff(moment(mailEntry.dailyEmailCount.date), "days");
-    const emailLimit = EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit || 500;
+    // ✅ Count the number of unique days where emails were sent
+    const sentDays = await Mail.countDocuments({
+      userId,
+      "dailyEmailCount.count": { $gt: 0 }, // Only count days where emails were sent
+    });
+
+    // ✅ Find the appropriate email limit based on the sent days
+    const emailLimit =
+      EMAIL_LIMITS.find((limit) => sentDays <= limit.days)?.limit || 500;
+
+    console.log(`📊 Total Days Sent Emails: ${sentDays} days`);
+    console.log(`📈 Today's Email Limit: ${emailLimit}`);
 
     if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
+      // ✅ If the previous day's count was greater than 0, it means an email was sent on that day
+      if (mailEntry.dailyEmailCount.count > 0) {
+        await Mail.updateOne(
+          { userId },
+          { $inc: { totalSentDays: 1 } } // ✅ Increment the unique sent days counter
+        );
+      }
       mailEntry.dailyEmailCount.date = today.toDate();
       mailEntry.dailyEmailCount.count = 0;
       await mailEntry.save();
@@ -72,7 +88,10 @@ exports.sendBulkEmails = async ({
 
     if (mailEntry.dailyEmailCount.count >= emailLimit) {
       console.warn("⛔ Daily email limit reached.");
-      sendNotification(userId, "⛔ Daily email limit reached. Try again tomorrow.");
+      sendNotification(
+        userId,
+        "⛔ Daily email limit reached. Try again tomorrow."
+      );
       return { message: "Daily email limit reached. Try again tomorrow." };
     }
 
@@ -86,30 +105,30 @@ exports.sendBulkEmails = async ({
 
     if (successCount >= emailLimit) return { message: "Email limit reached" };
 
-
     const airesult = await processEmailService({
-      "my_company": "Reachify Innovations",
-      "my_designation": "CTO",
-      "my_name": "Abhinav Dogra",
-      "my_mail": "info@reachifyinnovations.com",
-      "my_work": "Software development and website optimization",
-      "my_cta_link": "https://www.reachifyinnovations.com/contactus",
+      my_company: "Reachify Innovations",
+      my_designation: "CTO",
+      my_name: "Abhinav Dogra",
+      my_mail: "info@reachifyinnovations.com",
+      my_work: "Software development and website optimization",
+      my_cta_link: "https://www.reachifyinnovations.com/contactus",
       client_name: Name,
       client_company: ClientCompany,
       client_designation: ClientDesignation,
       client_mail: email,
       client_website: WebsiteUrl,
-      video_path: s3Url
+      video_path: s3Url,
     });
 
     console.log("📩 AI Result:", airesult);
-
 
     console.log("📩 Sending emails...");
 
     let successCount = 0;
     let failureCount = 0;
     let failedEmails = [];
+
+    console.log(`📡 Calling processEmailService for ${emailData.Email}...`);
 
     // ✅ Send Emails for Each Entry
     for (const emailData of emailDataList) {
@@ -125,12 +144,21 @@ exports.sendBulkEmails = async ({
         };
 
         // ✅ Introduce Delay (Prevent Outlook Rate Limiting)
-        await new Promise((resolve) => setTimeout(resolve, Math.random() * (10000 - 5000) + 5000));
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.random() * (10000 - 5000) + 5000)
+        );
 
         // ✅ Send Email
-        await axios.post("https://graph.microsoft.com/v1.0/me/sendMail", emailPayload, {
-          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        });
+        await axios.post(
+          "https://graph.microsoft.com/v1.0/me/sendMail",
+          emailPayload,
+          {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
 
         console.log(`✅ Email sent to: ${emailData.Email}`);
         sendNotification(userId, `✅ Email sent to: ${emailData.Email}`);
@@ -145,8 +173,14 @@ exports.sendBulkEmails = async ({
           }
         );
       } catch (error) {
-        console.error(`❌ Failed to send email to ${emailData.Email}:`, error.message);
-        sendNotification(userId, `❌ Failed to send email to ${emailData.Email}`);
+        console.error(
+          `❌ Failed to send email to ${emailData.Email}:`,
+          error.message
+        );
+        sendNotification(
+          userId,
+          `❌ Failed to send email to ${emailData.Email}`
+        );
         failureCount++;
         failedEmails.push({ email: emailData.Email, reason: error.message });
       }
@@ -173,7 +207,7 @@ exports.sendEmail = async ({
   WebsiteUrl,
   ClientCompany,
   ClientDesignation,
- }) => {
+}) => {
   console.log("🚀 Bulk Email Process Started...");
 
   console.log("🚀 email", email);
@@ -218,22 +252,29 @@ exports.sendEmail = async ({
       await mailEntry.save();
     }
 
-    const accountAgeInDays = moment().diff(
-      moment(mailEntry.dailyEmailCount.date),
-      "days"
-    );
+    // ✅ Count the number of unique days where emails were sent
+    const sentDays = await googlemailSchema.countDocuments({
+      userId,
+      "dailyEmailCount.count": { $gt: 0 }, // Only count days where emails were sent
+    });
 
+    // ✅ Find the appropriate email limit based on the sent days
     const emailLimit =
-      EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit ||
-      500;
+      EMAIL_LIMITS.find((limit) => sentDays <= limit.days)?.limit || 500;
 
-    console.log(`📊 Account Age: ${accountAgeInDays} days`);
+    console.log(`📊 Total Days Sent Emails: ${sentDays} days`);
     console.log(`📈 Today's Email Limit: ${emailLimit}`);
 
-    // ✅ Reset count if it's a new day
     if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
-      console.log("🔄 Resetting daily email count (new day)");
-      mailEntry.dailyEmailCount = { date: today.toDate(), count: 0 };
+      // ✅ If the previous day's count was greater than 0, it means an email was sent on that day
+      if (mailEntry.dailyEmailCount.count > 0) {
+        await googlemailSchema.updateOne(
+          { userId },
+          { $inc: { totalSentDays: 1 } } // ✅ Increment the unique sent days counter
+        );
+      }
+      mailEntry.dailyEmailCount.date = today.toDate();
+      mailEntry.dailyEmailCount.count = 0;
       await mailEntry.save();
     }
 
@@ -248,23 +289,21 @@ exports.sendEmail = async ({
     }
 
     const airesult = await processEmailService({
-      "my_company": "Reachify Innovations",
-      "my_designation": "CTO",
-      "my_name": "Abhinav Dogra",
-      "my_mail": "info@reachifyinnovations.com",
-      "my_work": "Software development and website optimization",
-      "my_cta_link": "https://www.reachifyinnovations.com/contactus",
+      my_company: "Reachify Innovations",
+      my_designation: "CTO",
+      my_name: "Abhinav Dogra",
+      my_mail: "info@reachifyinnovations.com",
+      my_work: "Software development and website optimization",
+      my_cta_link: "https://www.reachifyinnovations.com/contactus",
       client_name: Name,
       client_company: ClientCompany,
       client_designation: ClientDesignation,
       client_mail: email,
       client_website: WebsiteUrl,
-      video_path: s3Url
+      video_path: s3Url,
     });
 
     console.log("📩 AI Result:", airesult);
-
-    
 
     console.log(`📨 Sending email to: ${email}`);
 
@@ -371,7 +410,14 @@ exports.sendEmailIMAP = async ({
   ClientCompany,
   ClientDesignation,
 }) => {
-  console.log("in mail controller", email, Name, WebsiteUrl, ClientCompany, ClientDesignation);
+  console.log(
+    "in mail controller",
+    email,
+    Name,
+    WebsiteUrl,
+    ClientCompany,
+    ClientDesignation
+  );
   console.log("🚀 IMAP Bulk Email Process Started...");
   try {
     let imapConfig = await imapschema.findOne({ userId });
@@ -391,30 +437,30 @@ exports.sendEmailIMAP = async ({
       });
       await imapConfig.save();
     }
+    // ✅ Count the number of unique days where emails were sent
+    const sentDays = await imapschema.countDocuments({
+      userId,
+      "dailyEmailCount.count": { $gt: 0 }, // Only count days where emails were sent
+    });
 
-    const accountAgeInDays = moment().diff(
-      moment(imapConfig.dailyEmailCount.date),
-      "days"
-    );
+    // ✅ Find the appropriate email limit based on the sent days
     const emailLimit =
-      EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit ||
-      500;
+      EMAIL_LIMITS.find((limit) => sentDays <= limit.days)?.limit || 500;
 
-    console.log(`📊 Account Age: ${accountAgeInDays} days`);
+    console.log(`📊 Total Days Sent Emails: ${sentDays} days`);
     console.log(`📈 Today's Email Limit: ${emailLimit}`);
 
-    // ✅ Reset count if it's a new day
-    if (moment(imapConfig.dailyEmailCount.date).isBefore(today)) {
-      console.log("🔄 Resetting daily email count (new day)");
-      await imapschema.updateOne(
-        { userId },
-        {
-          $set: {
-            "dailyEmailCount.date": today.toDate(),
-            "dailyEmailCount.count": 0,
-          },
-        }
-      );
+    if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
+      // ✅ If the previous day's count was greater than 0, it means an email was sent on that day
+      if (mailEntry.dailyEmailCount.count > 0) {
+        await imapschema.updateOne(
+          { userId },
+          { $inc: { totalSentDays: 1 } } // ✅ Increment the unique sent days counter
+        );
+      }
+      mailEntry.dailyEmailCount.date = today.toDate();
+      mailEntry.dailyEmailCount.count = 0;
+      await mailEntry.save();
     }
 
     // ✅ Fetch updated count after reset
@@ -448,18 +494,18 @@ exports.sendEmailIMAP = async ({
     if (successCount >= emailLimit) return { message: "Email limit reached" };
 
     const airesult = await processEmailService({
-      "my_company": "Reachify Innovations",
-      "my_designation": "CTO",
-      "my_name": "Abhinav Dogra",
-      "my_mail": "info@reachifyinnovations.com",
-      "my_work": "Software development and website optimization",
-      "my_cta_link": "https://www.reachifyinnovations.com/contactus",
+      my_company: "Reachify Innovations",
+      my_designation: "CTO",
+      my_name: "Abhinav Dogra",
+      my_mail: "info@reachifyinnovations.com",
+      my_work: "Software development and website optimization",
+      my_cta_link: "https://www.reachifyinnovations.com/contactus",
       client_name: Name,
       client_company: ClientCompany,
       client_designation: ClientDesignation,
       client_mail: email,
       client_website: WebsiteUrl,
-      video_path: s3Url
+      video_path: s3Url,
     });
 
     console.log("📩 AI Result:", airesult);

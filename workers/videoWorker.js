@@ -18,7 +18,6 @@ const mailSchema = require("../models/mailSchema");
 const imapschema = require("../models/imapschema");
 const { sendNotification } = require("../services/notificationService");
 
-const router = express.Router();
 
 const maxConcurrency = Math.max(1, os.cpus().length - 1);
 let terminationRequested = false;
@@ -36,6 +35,15 @@ const redisConnection = new Redis(process.env.REDIS_URL, {
   },
   maxmemory: "500mb", // Prevent excessive memory usage
   keepAlive: 5000, // Keep connection alive
+});
+
+const emailJobQueue = new Queue("emailJobs", {
+  connection: redisConnection,
+  defaultJobOptions: {
+    removeOnComplete: 100, // Keep last 100 jobs for debugging
+    removeOnFail: 50, // Store only last 50 failed jobs
+    attempts: 3,
+  }
 });
 
 // Optimized Job Queue
@@ -136,91 +144,83 @@ const processJob = async (job) => {
     const cameraSettings = user.cameraSettings;
 
     const data = processExcel(excelPath);
-    const websiteUrls = data.map((entry) => entry.WebsiteUrl);
-    console.log("✅ Excel file processed successfully.", websiteUrls);
-    if (!websiteUrls.length)
-      throw new Error("❌ No valid URLs found in the Excel file.");
+    console.log("✅ Excel file processed successfully.", data);
+    if (!data.length) throw new Error("❌ No valid data found in the Excel file.");
 
+    // ✅ Process Websites in Parallel
+    const recordedVideos = await processWebsites(data.map((row) => row.WebsiteUrl), job.id);
+    if (!recordedVideos.length) throw new Error("❌ No recordings succeeded.");
 
+    // ✅ Parallel Processing: Merging Videos & Uploading to S3
+    const mergedVideos = await Promise.all(
+      recordedVideos.map(async ({ webUrl, path: webVideo }, index) => {
+        const outputFilePath = `./uploads/merged_${Date.now()}_${index}.mp4`;
 
-    // ✅ Use extracted parallel processing function
-    const recordedVideos = await processWebsites(websiteUrls, job.id);
-    if (!recordedVideos.length)
-      throw new Error("❌ No recordings succeeded.");
+        try {
+          console.log(`🔄 Merging video for row ${index + 1}...`);
+          await mergeVideos(webVideo, camVideoPath, outputFilePath, cameraSettings);
 
-    const mergedVideos = [];
-    for (const { webUrl, path: webVideo } of recordedVideos) {
-      const outputFilePath = `./uploads/merged_${Date.now()}.mp4`;
+          console.log(`☁️ Uploading merged video to S3 for row ${index + 1}...`);
+          const s3Url = await uploadToS3(outputFilePath, `merged_${Date.now()}_${index}.mp4`);
+
+          console.log(`✅ Video uploaded to S3: ${s3Url}`);
+          return { rowNumber: index + 1, s3Url, webUrl };
+        } catch (error) {
+          console.error(`❌ Error processing row ${index + 1}:`, error.message);
+          return null;
+        } finally {
+          deleteFile(webVideo);
+          deleteFile(outputFilePath);
+        }
+      })
+    );
+
+    // ✅ Filter out failed merges
+    const successfulMerges = mergedVideos.filter((video) => video !== null);
+    if (!successfulMerges.length) throw new Error("❌ No videos successfully processed.");
+
+    // ✅ Fetch Email Configurations in Parallel
+    const [googlemail, microsoft, imap] = await Promise.all([
+      googlemailSchema.findOne({ userId }),
+      mailSchema.findOne({ userId }),
+      imapschema.findOne({ userId }),
+    ]);
+
+    // ✅ Queue Emails for Sending One by One
+    for (const { rowNumber, s3Url } of successfulMerges) {
+      const matchedRow = data[rowNumber - 1];
+
+      if (!matchedRow || !matchedRow.Email) {
+        console.warn(`⚠️ No email found for row ${rowNumber}. Skipping email.`);
+        continue;
+      }
+
+      const { Email: recipientEmail, Name, WebsiteUrl, ClientCompany, ClientDesignation } = matchedRow;
+      console.log(`📤 Sending email to: ${recipientEmail} (Row: ${rowNumber})`);
 
       try {
-        console.log("🔄 Merging videos...");
-        await mergeVideos(webVideo, camVideoPath, outputFilePath, cameraSettings);
-
-        console.log("☁️ Uploading to S3...");
-        const s3Url = await uploadToS3(outputFilePath, `merged_${Date.now()}.mp4`);
-        mergedVideos.push(s3Url);
-        console.log(`✅ Video uploaded to S3: ${s3Url}`);
-
-
-        const matchedRow = data.find(row => row.WebsiteUrl?.trim().toLowerCase() === webUrl.trim().toLowerCase());
-
-        console.log("🔍 Matched Row:", matchedRow);
-        const recipientEmail = matchedRow?.Email;
-        const Name = matchedRow?.Name;
-        const WebsiteUrl = matchedRow?.WebsiteUrl;
-        const ClientCompany = matchedRow?.ClientCompany;
-        const ClientDesignation = matchedRow?.ClientDesignation;
-        console.log("📧 Recipient Email:", recipientEmail);
-
-
-
-        if (recipientEmail) {
-          console.log(`📤 Sending email to: ${recipientEmail} for ${webUrl}`);
-
-          // Await the database queries properly
-          const googlemail = await googlemailSchema.findOne({ userId });
-          const microsoft = await mailSchema.findOne({ userId });
-          const imap = await imapschema.findOne({ userId });
-
-          try {
-            if (googlemail) {
-               await sendEmail({ email: recipientEmail, userId, s3Url,Name, WebsiteUrl, ClientCompany, ClientDesignation});
-               console.log("📧 Email sent to Google Mail");
-            } else if (microsoft) {
-               await sendBulkEmails({ email: recipientEmail, userId, s3Url,Name, WebsiteUrl, ClientCompany, ClientDesignation});
-                console.log("📧 Email sent to Microsoft");
-            } else if (imap) {
-              await sendEmailIMAP({ email: recipientEmail, userId, s3Url,Name, WebsiteUrl, ClientCompany, ClientDesignation});
-              console.log("📧 Email sent to IMAP");
-            } else {
-              console.warn(`⚠️ No email service found for URL: ${webUrl}. Skipping email.`);
-            }
-          } catch (error) {
-            console.error(`❌ Error sending email to ${recipientEmail}:`, error.message);
-          }
+        if (googlemail) {
+          await sendEmail({ email: recipientEmail, userId, s3Url, Name, WebsiteUrl, ClientCompany, ClientDesignation });
+        } else if (microsoft) {
+          await sendBulkEmails({ email: recipientEmail, userId, s3Url, Name, WebsiteUrl, ClientCompany, ClientDesignation });
+        } else if (imap) {
+          await sendEmailIMAP({ email: recipientEmail, userId, s3Url, Name, WebsiteUrl, ClientCompany, ClientDesignation });
         } else {
-          console.warn(`⚠️ No email found for URL: ${webUrl}. Skipping email.`);
+          console.warn(`⚠️ No email service found for user ${userId}. Skipping email.`);
         }
-
-
-
-      } catch (mergeError) {
-        console.error(`❌ Merging or Uploading Failed for ${webUrl}:`, mergeError.message);
-      } finally {
-        deleteFile(webVideo);
-        deleteFile(outputFilePath);
+      } catch (error) {
+        console.error(`❌ Error sending email to ${recipientEmail}:`, error.message);
       }
     }
-
 
 
     deleteFile(excelPath);
     deleteFile(camVideoPath);
 
-    // ✅ Ensure correct mapping before saving to MongoDB
-    const videoRecords = mergedVideos.map((url, index) => ({
-      websiteUrl: recordedVideos[index]?.webUrl || "Unknown",
-      mergedUrl: url,
+    // ✅ Store Processed Videos in Database
+    const videoRecords = successfulMerges.map(({ s3Url, webUrl }) => ({
+      mergedUrl: s3Url,
+      websiteUrl: webUrl,
     }));
 
     if (videoRecords.length > 0) {
@@ -237,6 +237,8 @@ const processJob = async (job) => {
     throw error;
   }
 };
+
+
 
 
 

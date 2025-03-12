@@ -8,7 +8,8 @@ const googleMailSchema = new mongoose.Schema({
   dailyEmailCount: {
     date: { type: Date, default: Date.now },  // Track the last email sent date
     count: { type: Number, default: 0 }  // How many emails sent today
-  }
+  },
+  totalSentDays: { type: Number, default: 0 },
 });
 
 module.exports = mongoose.model("GoogleMail", googleMailSchema); // ✅ Correct model name

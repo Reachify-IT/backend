@@ -8,7 +8,8 @@ const mailSchema = new mongoose.Schema({
   dailyEmailCount: {
     date: { type: Date, default: Date.now },
     count: { type: Number, default: 0 }
-  }
+  },
+  totalSentDays: { type: Number, default: 0 },
 });
 
 module.exports = mongoose.model("mailSchema", mailSchema);

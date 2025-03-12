@@ -12,7 +12,8 @@ const imapschema = new mongoose.Schema({
   dailyEmailCount: {
     date: { type: Date, default: Date.now },
     count: { type: Number, default: 0 }
-  }
+  },
+  totalSentDays: { type: Number, default: 0 },
 }, { timestamps: true });
 
 module.exports = mongoose.model("imapschema", imapschema);
