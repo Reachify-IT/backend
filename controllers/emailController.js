@@ -12,7 +12,7 @@ const tokenManager = require("../utils/tokenManager");
 const moment = require("moment");
 const { decryptPassword } = require("../utils/cryptoUtil");
 const { sendNotification } = require("../services/notificationService");
-const { default: processEmailService } = require("../services/APIService");
+const processEmailService = require("../services/APIService");
 
 const EMAIL_LIMITS = [
   { days: 3, limit: 30 },
@@ -450,21 +450,25 @@ exports.sendEmailIMAP = async ({
     console.log(`📊 Total Days Sent Emails: ${sentDays} days`);
     console.log(`📈 Today's Email Limit: ${emailLimit}`);
 
-    if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
+   
+
+    if (moment(imapConfig.dailyEmailCount.date).isBefore(today)) {
       // ✅ If the previous day's count was greater than 0, it means an email was sent on that day
-      if (mailEntry.dailyEmailCount.count > 0) {
+      if (imapConfig.dailyEmailCount.count > 0) {
         await imapschema.updateOne(
           { userId },
           { $inc: { totalSentDays: 1 } } // ✅ Increment the unique sent days counter
         );
       }
-      mailEntry.dailyEmailCount.date = today.toDate();
-      mailEntry.dailyEmailCount.count = 0;
-      await mailEntry.save();
+      imapConfig.dailyEmailCount.date = today.toDate();
+      imapConfig.dailyEmailCount.count = 0;
+      await imapConfig.save();
     }
 
-    // ✅ Fetch updated count after reset
-    imapConfig = await imapschema.findOne({ userId });
+
+
+     // ✅ Fetch updated count after reset
+     imapConfig = await imapschema.findOne({ userId });
 
     // ✅ Stop if the limit is reached
     if (imapConfig.dailyEmailCount.count >= emailLimit) {

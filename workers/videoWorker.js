@@ -239,9 +239,6 @@ const processJob = async (job) => {
 };
 
 
-
-
-
 let videoWorker = new Worker(
   "videoProcessing",
   async (job) => {

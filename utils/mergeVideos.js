@@ -1,7 +1,9 @@
 const ffmpeg = require("fluent-ffmpeg");
 const ffmpegStatic = require("ffmpeg-static");
+const ffprobeStatic = require("ffprobe-static");
 
 ffmpeg.setFfmpegPath(ffmpegStatic);
+ffmpeg.setFfprobePath(ffprobeStatic.path);
 
 const getVideoDuration = (videoPath) => {
   return new Promise((resolve, reject) => {
