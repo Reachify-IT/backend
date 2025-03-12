@@ -1,4 +1,4 @@
-import axios from 'axios';
+const axios = require('axios');
 
 const processEmailService = async ({
     client_name,
@@ -31,9 +31,7 @@ const processEmailService = async ({
                 "Content-Type": "application/json",
                 "Accept": "application/json"
             }
-        }
-        );
-
+        });
 
         console.log('Email processed successfully:', response.data);
         return response.data;
@@ -43,4 +41,4 @@ const processEmailService = async ({
     }
 };
 
-export default processEmailService;
+module.exports = processEmailService;
