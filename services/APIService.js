@@ -13,7 +13,7 @@ const processEmailService = async ({
 
     try {
         console.log('AI Processing email...');
-        const response = await axios.post('http://api.reachifyinnovations.in/api/process-email', {
+        const response = await axios.post('http://api.loomifyinnovations.com/api/process-email', {
             "my_company": "Reachify Innovations",
             "my_designation": "CTO",
             "my_name": "Abhinav Dogra",
