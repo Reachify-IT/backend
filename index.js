@@ -73,7 +73,7 @@ app.options("*", cors());
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:5174","http://frontend.reachifyinnovations.in"], // ✅ Ensure CORS is properly set
+    origin: ["http://localhost:5173", "http://localhost:5174","http://loomifyinnovations.com"], // ✅ Ensure CORS is properly set
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
