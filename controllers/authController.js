@@ -20,14 +20,9 @@ const signup = async (req, res, next) => {
     const { username, email, phoneNumber, password, role = "user" } = req.body;
 
     // Check if user already exists
-    const existingUser = await UserService.findByEmailOrUsername(
-      email,
-      username
-    );
+    const existingUser = await UserService.findByEmailOrUsername(email, username);
     if (existingUser)
-      return res
-        .status(400)
-        .json({ error: "Email or Username already exists" });
+      return res.status(400).json({ error: "Email or Username already exists" });
 
     // Check if phone number is already registered
     const existingPhone = await UserService.findByPhone(phoneNumber);
@@ -36,22 +31,25 @@ const signup = async (req, res, next) => {
 
     // Hash password and create user
     const hashedPassword = await hashPassword(password);
+    const trialEndDate = new Date();
+    trialEndDate.setDate(trialEndDate.getDate() + 3); // Set expiry after 3 days
+
     await UserService.createUser({
       username,
       email,
       phoneNumber,
       password: hashedPassword,
       role,
+      planDetails: "Trial", // Default to Trial
+      trialEndDate,
     });
 
-    // ✅ Only return a success message
-    res
-      .status(201)
-      .json({ message: "User created successfully", success: true });
+    res.status(201).json({ message: "User created successfully", success: true });
   } catch (err) {
     next(err);
   }
 };
+
 
 // 🔹 Signin Controller
 const signin = async (req, res, next) => {
@@ -65,9 +63,17 @@ const signin = async (req, res, next) => {
       return res.status(400).json({ error: "Invalid email or password" });
     }
 
+    // Check if the user is on a "Trial" plan and it has expired
+    if (user.planDetails === "Trial" && user.trialEndDate && new Date() > user.trialEndDate) {
+      return res.status(403).json({
+        error: "Your free trial has expired. Please upgrade to continue.",
+      });
+    }
+
     // Generate Access Token
     const accessToken = generateToken(user._id);
     res.status(200).json({ accessToken, user: UserService.sanitizeUser(user) });
+
     setTimeout(() => {
       sendNotification(user._id, "✅ Login Successful! 🚀");
     }, 1000);
@@ -75,6 +81,7 @@ const signin = async (req, res, next) => {
     next(err);
   }
 };
+
 
 const userDetails = async (req, res, next) => {
   try {
@@ -141,6 +148,8 @@ const logout = async (req, res) => {
     res.status(500).json({ error: "Logout failed" });
   }
 };
+
+
 
 
 

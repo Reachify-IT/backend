@@ -28,16 +28,26 @@ class UserService {
 
   // 🔹 Update User Details
   static async updateUser(userId, updateData) {
-    return await User.findByIdAndUpdate(userId, { $set: updateData }, { new: true });
+    return await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true }
+    );
   }
 
   // 🔹 Update User Plan (Auto-Upgrade)
   static async updatePlan(userId, newPlan) {
-    return await User.findByIdAndUpdate(
-      userId,
-      { planDetails: newPlan },
-      { new: true }
-    );
+    const user = await User.findById(userId);
+    if (!user) return null;
+
+    const updateData = { planDetails: newPlan };
+
+    // ✅ Reset video count if upgrading from "Trial"
+    if (user.planDetails === "Trial") {
+      updateData.videosCount = 0;
+    }
+
+    return await User.findByIdAndUpdate(userId, updateData, { new: true });
   }
 
   // 🔹 Add Payment to User History
@@ -51,7 +61,6 @@ class UserService {
 
   // 🔹 Sanitize User Data (Prevents Password Exposure)
   static sanitizeUser(user) {
-    
     return {
       _id: user._id,
       username: user.username,
@@ -59,11 +68,11 @@ class UserService {
       phoneNumber: user.phoneNumber,
       role: user.role,
       planDetails: user.planDetails || "NoPlan",
+      trialEndDate: user.trialEndDate || null, // ✅ Added trial end date
       videosCount: user.videosCount || 0,
       cameraSettings: user.cameraSettings,
       paymentHistory: user.paymentHistory || [], // Added payment history
     };
-
   }
 }
 

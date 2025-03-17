@@ -16,9 +16,11 @@ const UserSchema = new mongoose.Schema(
 
     planDetails: {
       type: String,
-      enum: ["Starter", "Pro", "Enterprise"],
-      default: "Starter",
+      enum: ["Trial", "Starter", "Pro", "Enterprise"], // Added "Trial"
+      default: "Trial", // New users start with "Trial"
     },
+    trialEndDate: { type: Date }, // Store trial expiration date
+    
     videosCount: { type: Number, default: 0 }, // Tracks stored videos per user
 
     cameraSettings: {

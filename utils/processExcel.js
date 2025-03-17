@@ -5,6 +5,8 @@ const processExcel = (filePath) => {
     const workbook = xlsx.readFile(filePath);
     const sheet = workbook.Sheets[workbook.SheetNames[0]]; // Get the first sheet
     const jsonData = xlsx.utils.sheet_to_json(sheet);
+    console.log(`✅ Extracted ${jsonData.length} rows from Excel.`); // Debugging
+
 
     if (!jsonData.length) {
       throw new Error("No data found in the Excel file.");

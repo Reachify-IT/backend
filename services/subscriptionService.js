@@ -1,6 +1,7 @@
 const User = require("../models/User");
 
 const PLAN_LIMITS = {
+  Trial: 30,
   Starter: 2000,
   Pro: 5000,
   Enterprise: 10000
@@ -8,22 +9,33 @@ const PLAN_LIMITS = {
 
 // 🛠️ Check if user can upload more videos
 exports.canUploadVideos = async (userId, videoCount) => {
-  const user = await User.findById(userId);
-  if (!user) return { allowed: false, message: "User not found" };
+  try {
+    console.log("🔍 Checking upload eligibility for:", { userId, videoCount });
 
-  const maxLimit = PLAN_LIMITS[user.planDetails] || 0;
-  const usedCount = user.videosCount || 0;
-  const newTotal = usedCount + videoCount;
+    const user = await User.findById(userId);
+    if (!user) {
+      console.error("❌ User not found:", userId);
+      return { allowed: false, message: "User not found", remaining: 0 };
+    }
 
-  if (newTotal > maxLimit) {
-    return { 
-      allowed: false, 
-      message: `Storage limit exceeded! You can store up to ${maxLimit} videos.` 
-    };
+    const maxLimit = PLAN_LIMITS[user.planDetails] || 0;
+    const usedCount = user.videosCount || 0;
+    const newTotal = usedCount + videoCount;
+
+    if (newTotal > maxLimit) {
+      return { 
+        allowed: false, 
+        message: `Storage limit exceeded! You can store up to ${maxLimit} videos.`, 
+        remaining: maxLimit - usedCount
+      };
+    }
+
+    return { allowed: true, remaining: maxLimit - usedCount };
+  } catch (error) {
+    console.error("❌ Error in canUploadVideos:", error);
+    return { allowed: false, message: "Internal server error", remaining: 0 };
   }
-
-  return { allowed: true, remaining: maxLimit - usedCount };
-};
+}; 
 
 // 🛠️ Update user's stored video count
 exports.incrementVideoCount = async (userId, count) => {
@@ -51,8 +63,10 @@ exports.upgradePlan = async (userId, newPlan, paymentDetails) => {
   // ✅ Upgrade Plan
   user.planDetails = newPlan;
   
-  // ✅ Reset Video Count on Upgrade
-  user.videosCount = 0;
+  // ✅ Reset Video Count ONLY IF upgrading from "Trial"
+  if (user.planDetails === "Trial") {
+    user.videosCount = 0;
+  }
 
   // ✅ Store Payment Details in User's Payment History
   user.paymentHistory.push({
@@ -66,3 +80,4 @@ exports.upgradePlan = async (userId, newPlan, paymentDetails) => {
 
   return { success: true, message: `Plan upgraded to ${newPlan}` };
 };
+

@@ -13,6 +13,8 @@ const REDIRECT_URI = "http://localhost:8000/api/oauth/microsoft/callback";
 const { google } = require("googleapis");
 
 const oauth2Client = require("../config/googleAuth");
+const MailInfoSchema = require("../models/MailInfoSchema");
+const { sendNotification } = require("../services/notificationService");
 
 // 1️⃣ Redirect User to Microsoft Login
 exports.microsoftAuthRedirect = (req, res) => {
@@ -187,5 +189,125 @@ exports.googleCallback = async (req, res) => {
   } catch (error) {
     console.error("❌ OAuth Callback Error:", error);
     res.status(500).json({ error: "Authentication failed", details: error.message });
+  }
+};
+
+
+exports.mailInfo = async (req, res) => {
+  // Save form data
+  const userId = req.user.id;
+  try {
+    const { my_company, my_designation, my_name, my_mail, my_work, my_cta_link } = req.body;
+
+    if (!userId || !my_company || !my_designation || !my_name || !my_mail || !my_work || !my_cta_link) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const existingMailInfo = await MailInfoSchema.findOne({ userId });
+    if (existingMailInfo) {
+      return res.status(400).json({ error: "Form data already exists for this user" });
+    }
+
+
+    const formData = new MailInfoSchema({
+      userId,
+      my_company,
+      my_designation,
+      my_name,
+      my_mail,
+      my_work,
+      my_cta_link,
+    });
+
+    await formData.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Form data saved successfully"
+    });
+    sendNotification(userId, "✅ Mail info data saved successfully!");
+  } catch (error) {
+    console.error("Error saving form data:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+    sendNotification(userId, "❌ Error saving mail info data!");
+  };
+
+
+};
+
+
+exports.getmailInfo = async (req, res) => {
+  const userId = req.user.id; // Assuming this is coming as a string
+  try {
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ status: "error", message: "User not found" });
+    }
+
+
+
+    const mailInfo = await MailInfoSchema.findOne({ userId }); // Use .lean() for plain JSON
+
+
+    if (!mailInfo) {
+      return res.status(200).json({
+        status: "success",
+        email: null,
+        message: "No email found",
+      });
+    }
+
+    return res.status(200).json({
+      status: "success",
+      data: mailInfo, // Ensure it's properly sent
+      message: "Data fetched successfully",
+    });
+  } catch (error) {
+    console.error("❌ Get Email Info Error:", error.message);
+    return res.status(500).json({ status: "error", message: "Failed to get email info" });
+  }
+};
+
+exports.updateMailInfo = async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const { my_company, my_designation, my_name, my_mail, my_work, my_cta_link } = req.body;
+
+    // Validate required fields
+    if (!userId || !my_company || !my_designation || !my_name || !my_mail || !my_work || !my_cta_link) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Find and update the existing mail info
+    const updatedMailInfo = await MailInfoSchema.findOneAndUpdate(
+      { userId },
+      { my_company, my_designation, my_name, my_mail, my_work, my_cta_link },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedMailInfo) {
+      return res.status(404).json({ error: "Form data not found for this user" });
+    }
+
+    res.status(200).json({ success: true, message: "Form data updated successfully", data: updatedMailInfo });
+    sendNotification(userId, "✅ Mail info data updated successfully!");
+  } catch (error) {
+    console.error("Error updating form data:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+    sendNotification(userId, "❌ Error updating mail info data!");
   }
 };

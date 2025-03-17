@@ -6,7 +6,7 @@ const CASHFREE_BASE_URLS = {
 };
 
 module.exports = {
-  CASHFREE_ENV: process.env.CASHFREE_ENV || "sandbox",
+  CASHFREE_ENV: process.env.CASHFREE_ENV || "prod",
   CASHFREE_APP_ID: process.env.CASHFREE_APP_ID,
   CASHFREE_SECRET_KEY: process.env.CASHFREE_SECRET_KEY,
   CASHFREE_API_VERSION: process.env.CASHFREE_API_VERSION || "2023-08-01",

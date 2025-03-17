@@ -1,5 +1,5 @@
 const express = require("express");
-const { microsoftAuthRedirect, microsoftAuthCallback } = require("../controllers/Oauth");
+const { microsoftAuthRedirect, microsoftAuthCallback, mailInfo, getmailInfo, updateMailInfo } = require("../controllers/Oauth");
 
 const { googleAuthRedirect, googleCallback } = require("../controllers/Oauth");
 const {verifyToken} = require("../middleware/verifyToken");
@@ -14,6 +14,10 @@ router.get("/microsoft/callback", microsoftAuthCallback); // Step 2: Handle call
 
 router.get("/google", verifyToken, googleAuthRedirect); // ✅ Ensures only authenticated users can access OAuth
 router.get("/google/callback", googleCallback); // ✅ Handles OAuth callback
+
+router.post("/mailMyInfo",verifyToken ,mailInfo);
+router.get("/getMyMailInfo",verifyToken ,getmailInfo);
+router.post("/updateMailInfo",verifyToken ,updateMailInfo);
 
 
 module.exports = router;

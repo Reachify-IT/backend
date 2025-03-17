@@ -1,6 +1,7 @@
 const cluster = require("cluster");
 const os = require("os");
 const winston = require("winston");
+const { startServer } = require("./server");
 
 const numCPUs = os.cpus().length; // Get number of CPU cores
 
@@ -20,12 +21,10 @@ if (cluster.isMaster) {
   }
 
   // Restart worker if it exits
-  cluster.on("exit", (worker, code, signal) => {
-    logger.error(`Worker ${worker.process.pid} died. Starting a new worker...`);
+  cluster.on("exit", (worker) => {
+    logger.error(`Worker ${worker.process.pid} died. Restarting...`);
     cluster.fork();
   });
 } else {
-  require("./index.js"); // Start the Express server in worker process
+  startServer(); // Start server in worker process
 }
-
-logger.info(`Worker process ${process.pid} started`);

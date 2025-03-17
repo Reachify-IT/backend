@@ -1,6 +1,9 @@
 const axios = require('axios');
+const mongoose = require('mongoose');
+const MailInfoSchema = require('../models/MailInfoSchema');
 
 const processEmailService = async ({
+    userId,
     client_name,
     client_company,
     client_designation,
@@ -10,16 +13,24 @@ const processEmailService = async ({
 }) => {
 
     console.log(client_name, client_company, client_designation, client_mail, client_website, video_path);
+    const objectId = new mongoose.Types.ObjectId(userId);
+
+    const MailInfo = await MailInfoSchema.findOne({ userId: objectId });
+    if (!MailInfo) {
+        throw new Error('User not found');
+    }
+
+    console.log("MailInfo:", MailInfo);
 
     try {
         console.log('AI Processing email...');
         const response = await axios.post('http://api.loomifyinnovations.com/api/process-email', {
-            "my_company": "Reachify Innovations",
-            "my_designation": "CTO",
-            "my_name": "Abhinav Dogra",
-            "my_mail": "info@reachifyinnovations.com",
-            "my_work": "Software development and website optimization",
-            "my_cta_link": "https://www.reachifyinnovations.com/contactus",
+            "my_company": MailInfo.my_company,
+            "my_designation": MailInfo.my_designation,
+            "my_name": MailInfo.my_name,
+            "my_mail": MailInfo.my_mail,
+            "my_work": MailInfo.my_work,
+            "my_cta_link": MailInfo.my_cta_link,
             client_name,
             client_company,
             client_designation,

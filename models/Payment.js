@@ -6,9 +6,11 @@ const PaymentSchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     planDetails: {
       type: String,
-      enum: ["Starter", "Pro", "Enterprise"],
-      default: "Starter",
+      enum: ["Trial", "Starter", "Pro", "Enterprise"], // Added "Trial"
+      default: "Trial", // New users start with "Trial"
     },
+    trialEndDate: { type: Date }, // Store trial expiration date
+    
     amount: { type: Number, required: true },
     currency: { type: String, default: "INR" },
     referenceId: { type: String }, // Cashfree transaction reference
