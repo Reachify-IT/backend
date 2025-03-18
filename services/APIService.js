@@ -24,7 +24,7 @@ const processEmailService = async ({
 
     try {
         console.log('AI Processing email...');
-        const response = await axios.post('http://api.loomifyinnovations.com/api/process-email', {
+        const response = await axios.post('https://api.loomifyinnovations.com/api/process-email', {
             "my_company": MailInfo.my_company,
             "my_designation": MailInfo.my_designation,
             "my_name": MailInfo.my_name,
