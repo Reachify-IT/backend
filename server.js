@@ -75,7 +75,7 @@ const startServer = () => {
     .then(() => {
       const io = new Server(server, {
         cors: {
-          origin: ["http://loomifyinnovations.com"],
+          origin: ["https://loomifyinnovations.com"],
           allowedHeaders: ["Content-Type", "Authorization"],
           credentials: true,
         },
