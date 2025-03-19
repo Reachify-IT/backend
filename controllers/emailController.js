@@ -13,6 +13,7 @@ const moment = require("moment");
 const { decryptPassword } = require("../utils/cryptoUtil");
 const { sendNotification } = require("../services/notificationService");
 const processEmailService = require("../services/APIService");
+const mongoose = require("mongoose");
 
 const EMAIL_LIMITS = [
   { days: 3, limit: 30 },
@@ -44,28 +45,55 @@ exports.sendBulkEmails = async ({
   try {
     console.log("🚀 Bulk Email Process Started...");
 
+    // Convert `userId` to `ObjectId` ONLY if it's a valid ObjectId
+    const ObjectId = mongoose.Types.ObjectId;
+    const queryUserId = ObjectId.isValid(userId) ? new ObjectId(userId) : userId;
+
+    console.log(`🔍 Checking Mail collection for userId: ${userId} (Type: ${typeof userId})`);
+    console.log(`🔍 Final userId used for query: ${queryUserId} (Type: ${typeof queryUserId})`);
+
     // Fetch sender's email & OAuth tokens
-    const mailEntry = await Mail.findOne({ userId });
-    if (!mailEntry || !mailEntry.refreshToken) {
+    const mailEntry = await Mail.findOne({ userId: queryUserId });
+
+    if (!mailEntry) {
+      console.error(`❌ No Mail entry found for userId: ${queryUserId}`);
+      console.log("🔍 Checking All Mail Entries in DB...");
+
+      // Debug: List all entries in Mail schema
+      const allUsers = await Mail.find({});
+      console.log("📂 All Mail Users:", allUsers.map(user => ({
+        userId: user.userId,
+        email: user.email
+      })));
+
+      return { message: `User with ID ${userId} not found.` };
+    }
+
+    console.log(`✅ Found Mail Entry: ${mailEntry.email}`);
+
+    // Check if the refresh token exists
+    if (!mailEntry.refreshToken) {
+      console.error("❌ No refresh token found. User must reauthenticate.");
       return { message: "User not authenticated. Please login again." };
     }
 
-    console.log(`📩 Using email: ${mailEntry.email}`);
-
-    // Refresh Outlook Access Token
+    console.log("🔄 Refreshing Outlook Access Token...");
     const accessToken = await refreshOutlookToken(mailEntry.refreshToken);
+
     if (!accessToken) {
-      return {
-        message:
-          "Failed to refresh Outlook access token. Re-authentication required.",
-      };
+      console.error("❌ Failed to refresh access token. Re-authentication required.");
+      return { message: "Failed to refresh Outlook access token. Re-authentication required." };
     }
+
+    console.log("🔑 Access Token Retrieved:", accessToken);
 
     let successCount = 0;
     let failureCount = 0;
     let failedEmails = [];
 
+    // Check email sending limits
     const today = moment().startOf("day");
+
     if (!mailEntry.dailyEmailCount) {
       mailEntry.dailyEmailCount = { date: today.toDate(), count: 0 };
       await mailEntry.save();
@@ -73,20 +101,19 @@ exports.sendBulkEmails = async ({
 
     // Count the number of unique days emails were sent
     const sentDays = await Mail.countDocuments({
-      userId,
+      userId: queryUserId,
       "dailyEmailCount.count": { $gt: 0 },
     });
 
     // Determine email limit
-    const emailLimit =
-      EMAIL_LIMITS.find((limit) => sentDays <= limit.days)?.limit || 500;
+    const emailLimit = EMAIL_LIMITS.find((limit) => sentDays <= limit.days)?.limit || 500;
 
     console.log(`📊 Total Days Sent Emails: ${sentDays} days`);
     console.log(`📈 Today's Email Limit: ${emailLimit}`);
 
     if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
       if (mailEntry.dailyEmailCount.count > 0) {
-        await Mail.updateOne({ userId }, { $inc: { totalSentDays: 1 } });
+        await Mail.updateOne({ userId: queryUserId }, { $inc: { totalSentDays: 1 } });
       }
       mailEntry.dailyEmailCount.date = today.toDate();
       mailEntry.dailyEmailCount.count = 0;
@@ -95,13 +122,11 @@ exports.sendBulkEmails = async ({
 
     if (mailEntry.dailyEmailCount.count >= emailLimit) {
       console.warn("⛔ Daily email limit reached.");
-      sendNotification(
-        userId,
-        "⛔ Daily email limit reached. Try again tomorrow."
-      );
+      sendNotification(userId, "⛔ Daily email limit reached. Try again tomorrow.");
       return { message: "Daily email limit reached. Try again tomorrow." };
     }
 
+    console.log("📡 Preparing email content using AI service...");
     const aiResult = await processEmailService({
       userId,
       client_name: Name,
@@ -113,11 +138,10 @@ exports.sendBulkEmails = async ({
     });
 
     const cleanedHtml = cleanHtmlResponse(aiResult.cleaned_html);
-    console.log("cleanedHtml: ", cleanedHtml);
-
-    console.log("📩 AI Result:", aiResult);
+    console.log("📝 Cleaned Email Content: ", cleanedHtml);
 
     console.log(`📡 Sending email to ${email}...`);
+
     try {
       const emailPayload = {
         message: {
@@ -128,13 +152,13 @@ exports.sendBulkEmails = async ({
         },
       };
 
-      // Delay to prevent rate limiting
-      await new Promise((resolve) =>
-        setTimeout(resolve, Math.random() * (10000 - 5000) + 5000)
-      );
+      console.log("📤 Email Payload:", JSON.stringify(emailPayload, null, 2));
 
-      // Send Email
-      await axios.post(
+      // Delay to prevent rate limiting
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * (10000 - 5000) + 5000));
+
+      // Send Email via Microsoft API
+      const response = await axios.post(
         "https://graph.microsoft.com/v1.0/me/sendMail",
         emailPayload,
         {
@@ -145,20 +169,22 @@ exports.sendBulkEmails = async ({
         }
       );
 
-      console.log(`✅ Email sent to: ${email}`);
+      console.log(`✅ Email sent successfully to: ${email}`);
       sendNotification(userId, `✅ Email sent to: ${email}`);
       successCount++;
 
       // Update Daily Email Count
       await Mail.updateOne(
-        { userId },
+        { userId: queryUserId },
         {
           $set: { "dailyEmailCount.date": new Date() },
           $inc: { "dailyEmailCount.count": 1 },
         }
       );
     } catch (error) {
-      console.error(`❌ Failed to send email to ${email}:`, error.message);
+      console.error(`❌ Failed to send email to ${email}`);
+      console.error("🔍 Error Details:", error.response ? error.response.data : error.message);
+
       sendNotification(userId, `❌ Failed to send email to ${email}`);
       failureCount++;
       failedEmails.push({ email, reason: error.message });

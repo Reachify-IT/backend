@@ -37,9 +37,10 @@ exports.getCameraSettings = async (req, res) => {
 
 // Update Camera Settings
 exports.updateCameraSettings = async (req, res) => {
-  let userId;
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
   try {
-    const userId = req.user.id; // Assuming user ID is extracted from auth middleware
     const { position, size } = req.body;
 
     // Validate input
@@ -57,16 +58,69 @@ exports.updateCameraSettings = async (req, res) => {
       { new: true, select: "cameraSettings" }
     );
 
-    if (!updatedUser) {
-      return res.status(404).json({ message: "User not found" });
-    }
+    if (!updatedUser) return res.status(404).json({ message: "User not found" });
 
     sendNotification(userId, "✅ Camera settings updated successfully!");
 
     res.status(200).json({ message: "Camera settings updated", cameraSettings: updatedUser.cameraSettings });
   } catch (error) {
-    console.error("Error updating camera settings:", error);
-    sendNotification(userId, "✅ Camera settings update failed!");
-    res.status(500).json({ message: "Server error" });
+    console.error("❌ Error updating camera settings:", error);
+    sendNotification(userId, "❌ Camera settings update failed!");
+    res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+
+// ✅ Get Video Preference (FIXED)
+exports.getVideoPreference = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const user = await User.findById(userId, "videoPreference");
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.status(200).json({ videoPreference: user.videoPreference });
+  } catch (error) {
+    console.error("❌ Error fetching video preference:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ Update Video Preference (FIXED)
+exports.updateVideoPreference = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { videoPreference } = req.body;
+
+    // Validate input
+    const validPreferences = ["storeOnly", "instantMail"];
+    if (!validPreferences.includes(videoPreference)) {
+      return res.status(400).json({ message: "Invalid video preference option" });
+    }
+
+    // Update the user's video preference
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { videoPreference },
+      { new: true, select: "videoPreference" }
+    );
+
+    if (!updatedUser) return res.status(404).json({ message: "User not found" });
+
+    sendNotification(userId, `✅ Video preference updated to: ${videoPreference}`);
+
+    res.status(200).json({
+      message: "Video preference updated successfully",
+      videoPreference: updatedUser.videoPreference,
+    });
+  } catch (error) {
+    console.error("❌ Error updating video preference:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+

@@ -20,8 +20,14 @@ const UserSchema = new mongoose.Schema(
       default: "Trial", // New users start with "Trial"
     },
     trialEndDate: { type: Date }, // Store trial expiration date
-    
+
     videosCount: { type: Number, default: 0 }, // Tracks stored videos per user
+
+    videoPreference: {
+      type: String,
+      enum: ["storeOnly", "instantMail"],
+      default: "storeOnly",
+    },
 
     cameraSettings: {
       position: {

@@ -1,5 +1,5 @@
 const express = require("express");
-const { signup, signin, userDetails,updateDetails, logout } = require("../controllers/authController");
+const { signup, signin, userDetails,updateDetails, logout, forgetpassword, resetpassword } = require("../controllers/authController");
 const { verifyToken, authorizeRoles } = require("../middleware/verifyToken");
 const { validateSignup, validateSignin } = require("../validators/authValidator");
 
@@ -21,6 +21,10 @@ router.get("/user-dashboard", verifyToken, (req, res) => {
 router.get("/admin-dashboard", verifyToken, authorizeRoles("admin"), (req, res) => {
   res.status(200).json({ message: "Admin Access Granted" });
 });
+
+router.post("/forgot-password", forgetpassword);
+
+router.post("/reset-password/:token", resetpassword);
 
 module.exports = router;
     

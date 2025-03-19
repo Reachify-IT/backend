@@ -6,6 +6,12 @@ const {
 } = require("../utils/authUtils");
 const { validationResult } = require("express-validator");
 const { sendNotification } = require("../services/notificationService");
+const User = require("../models/User");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const nodemailer = require("nodemailer");
+
+require("dotenv").config();
 
 // 🔹 Handle Validation Errors
 const validateRequest = (req, res) => {
@@ -151,6 +157,122 @@ const logout = async (req, res) => {
 
 
 
+// Forgot Password Route
+const forgetpassword = async (req, res) => {
+  const { email } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Create Reset Token (expires in 15 minutes)
+    const resetToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "15m" });
 
 
-module.exports = { signup, signin, userDetails, updateDetails, logout };
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASSWORD,
+      },
+    });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    const mailHTML = `<!DOCTYPE html>
+              <html>
+              <head>
+                  <meta charset="UTF-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1">
+                  <title>Password Reset - Loomify</title>
+              </head>
+              <body style="font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0;">
+                  <div style="max-width: 600px; margin: 30px auto; background: #ffffff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);">
+                      
+                      <h1 style="color: #333; font-size: 24px; margin: 0; padding-bottom: 10px; border-bottom: 2px solid #eeeeee;">Loomify</h1>
+
+                      <p style="font-size: 16px; color: #555; margin: 20px 0;">Hi,</p>
+
+                      <p style="font-size: 16px; color: #555; margin: 0;">We received a request to reset your password for your Loomify account. Click the button below to reset it:</p>
+
+                      <p style="margin: 20px 0;">
+                          <a href="${resetUrl}" 
+                              style="display: inline-block; padding: 12px 24px; background: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px; font-size: 16px; font-weight: bold;">
+                              Reset Password
+                          </a>
+                      </p>
+
+                      <p style="font-size: 16px; color: #555; margin: 0;">If you didn't request this, you can safely ignore this email. Your password will remain unchanged.</p>
+
+                      <p style="font-size: 16px; color: #555; font-weight: bold; margin-top: 10px;">This link is valid for 15 minutes.</p>
+
+                      <p style="font-size: 14px; color: #888; margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px;">
+                          Need help? Contact us at <a href="mailto:support@loomify.com" style="color: #007bff; text-decoration: none;">support@loomify.com</a>
+                      </p>
+
+                      <p style="font-size: 14px; color: #888; margin-top: 5px;">&copy; ${new Date().getFullYear()} Loomify. All rights reserved.</p>
+
+                  </div>
+              </body>
+              </html>
+
+      `
+
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: user.email,
+      subject: "Password Reset Request",
+      html: mailHTML
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Password reset email sent"
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error" });
+  }
+}
+
+// Reset Password Route
+const resetpassword = async (req, res) => {
+  const { token } = req.params;
+  const { newPassword } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log("decoded", decoded.id);
+
+    const user = await User.findById(decoded.id);
+
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+
+
+    await user.save();
+    res.status(200).json({
+      success: true,
+      message: "Password reset successful"
+    });
+  } catch (error) {
+    res.status(400).json({ message: "Invalid or expired token" });
+  }
+}
+
+
+
+
+
+
+module.exports = { signup, signin, userDetails, updateDetails, logout, forgetpassword, resetpassword };

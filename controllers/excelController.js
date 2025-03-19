@@ -16,11 +16,6 @@ const googlemailSchema = require("../models/googlemailSchema");
 const mailSchema = require("../models/mailSchema");
 const User = require("../models/User");
 
-let uploadedFiles = {
-  excelPath: null,
-  camVideoPath: null,
-};
-
 const EMAIL_LIMITS = [
   { days: 3, limit: 30 },
   { days: 7, limit: 70 },
@@ -32,11 +27,18 @@ const EMAIL_LIMITS = [
 
 const maxConcurrentTabs = 5;
 
-// 🟢 Upload Excel File (Only `.xlsx`)
+// 🟢 Upload Excel File (Only `.xlsx`)const fs = require("fs");
+
+let uploadedFiles = {
+  xlxsfilePath: null,
+  camVideoPath: null,
+};
+
 exports.uploadExcel = async (req, res) => {
   try {
-    if (!req.file)
+    if (!req.file) {
       return res.status(400).json({ error: "No Excel file uploaded" });
+    }
 
     // ✅ Ensure User is Authenticated
     if (!req.user || !req.user.id) {
@@ -49,23 +51,51 @@ exports.uploadExcel = async (req, res) => {
       return res.status(401).json({ error: "Unauthorized: User not found" });
     }
 
-    // ✅ Trial Limit Check (Prevents exceeding 25 videos)
+    // ✅ Trial Limit Check (Prevents exceeding 30 videos)
     if (user.planDetails === "Trial" && user.videosCount >= 30) {
-      return res
-        .status(403)
-        .json({ error: "Trial limit reached. Upgrade to continue." });
+      // 🔹 Delete the uploaded file before returning the response
+      if (req.file && req.file.path) {
+        fs.unlink(req.file.path, (err) => {
+          if (err) {
+            console.error("⚠️ Error deleting file:", err);
+          } else {
+            console.log("🗑️ File deleted successfully:", req.file.path);
+          }
+        });
+      }
+
+      return res.status(403).json({
+        message: "Trial limit reached. Upgrade to continue.",
+        error: "Trial limit reached. Upgrade to continue.",
+      });
     }
 
-    uploadedFiles.excelPath = req.file.path;
-    console.log("📂 Excel file uploaded:", uploadedFiles.excelPath);
+    // ✅ Save the file path if everything is fine
+    uploadedFiles.xlxsfilePath = req.file.path;
+    console.log("📂 Excel file uploaded:", uploadedFiles.xlxsfilePath);
 
     res.status(200).json({
       message: "Excel file uploaded successfully",
-      path: uploadedFiles.excelPath,
+      path: uploadedFiles.xlxsfilePath,
     });
   } catch (error) {
     console.error("❌ Error uploading Excel file:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+
+    // 🔹 Delete the uploaded file in case of an error
+    if (req.file && req.file.path) {
+      fs.unlink(req.file.path, (err) => {
+        if (err) {
+          console.error("⚠️ Error deleting file:", err);
+        } else {
+          console.log("🗑️ File deleted successfully:", req.file.path);
+        }
+      });
+    }
+
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: "Internal Server Error",
+    });
   }
 };
 
@@ -84,6 +114,18 @@ exports.uploadCamVideo = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error uploading camera video:", error);
+
+    // Delete the uploaded file if it exists
+    if (uploadedFiles.camVideoPath) {
+      fs.unlink(uploadedFiles.camVideoPath, (unlinkError) => {
+        if (unlinkError) {
+          console.error("⚠️ Error deleting file:", unlinkError);
+        } else {
+          console.log("🗑️ Uploaded file deleted due to an error.");
+        }
+      });
+    }
+
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
@@ -102,6 +144,8 @@ const waitForQueueReady = async () => {
 exports.startProcessing = async (req, res) => {
   let userId; // Declare userId outside try block to be accessible in catch block
 
+  const folderId = req.body.folderId;
+  console.log("📂 Folder ID:", folderId);
   try {
     console.log("⚠️ startProcessing() was called! Checking why...");
 
@@ -112,17 +156,17 @@ exports.startProcessing = async (req, res) => {
         .json({ error: "Processing must be manually started." });
     }
 
-    if (!uploadedFiles.excelPath || !uploadedFiles.camVideoPath) {
+    if (!uploadedFiles.xlxsfilePath || !uploadedFiles.camVideoPath) {
       return res
         .status(400)
         .json({ error: "Both Excel and Camera video must be uploaded first" });
     }
 
-    console.log("📂 Processing Excel File:", uploadedFiles.excelPath);
+    console.log("📂 Processing Excel File:", uploadedFiles.xlxsfilePath);
     console.log("📹 Processing Camera Video:", uploadedFiles.camVideoPath);
 
     // ✅ Read the Excel file
-    const websiteUrls = processExcel(uploadedFiles.excelPath);
+    const websiteUrls = processExcel(uploadedFiles.xlxsfilePath);
     if (websiteUrls.length === 0) {
       return res
         .status(400)
@@ -153,49 +197,67 @@ exports.startProcessing = async (req, res) => {
       });
     }
 
-    const microSoftMail = await mailSchema.findOne({ userId });
-    const googleMail = await googlemailSchema.findOne({ userId });
-    const imapMail = await imapschema.findOne({ userId });
+    // ✅ Fetch `videoPreference`
+    const videoPreference = user.videoPreference || "storeOnly";
+    console.log(`📌 User Video Preference: ${videoPreference}`);
 
-    const mailEntry = microSoftMail || googleMail || imapMail;
-    console.log("🚀 mailEntry", mailEntry);
-
-    if (!mailEntry) {
-      return res
-        .status(401)
-        .json({ error: "Unauthorized: No email account found for this user." });
-    }
-
-    const today = moment().startOf("day");
-
-    if (!mailEntry.dailyEmailCount) {
-      mailEntry.dailyEmailCount = { date: today.toDate(), count: 0 };
-      await mailEntry.save();
-    }
-
-    const accountAgeInDays = moment().diff(
-      moment(mailEntry.dailyEmailCount.date),
-      "days"
-    );
-    const emailLimit =
-      EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit ||
-      500;
-
-    if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
-      mailEntry.dailyEmailCount.date = today.toDate();
-      mailEntry.dailyEmailCount.count = 0;
-      await mailEntry.save();
-    }
-
-    if (mailEntry.dailyEmailCount.count >= emailLimit) {
-      console.warn("⛔ Daily email limit reached.");
-      sendNotification(
-        userId,
-        "⛔ Daily email limit reached. Try again tomorrow."
+    // ✅ If `storeOnly`, skip checking email config & limits
+    if (videoPreference === "storeOnly") {
+      console.log(
+        "📂 Skipping email configuration checks since user selected 'storeOnly'."
       );
-      return res
-        .status(403)
-        .json({ message: "Daily email limit reached. Try again tomorrow." });
+    } else {
+      console.log("📧 Checking email configuration for instantMail...");
+
+      const microSoftMail = await mailSchema.findOne({ userId });
+      const googleMail = await googlemailSchema.findOne({ userId });
+      const imapMail = await imapschema.findOne({ userId });
+
+      const mailEntry = microSoftMail || googleMail || imapMail;
+      console.log("🚀 mailEntry", mailEntry);
+
+      if (!mailEntry) {
+        sendNotification(
+          userId,
+          "❌ Unauthorized: No email account found for this user. First config the mail for bulk Opration"
+        );
+        return res.status(401).json({
+          error:
+            "Unauthorized: No email account found for this user. First config the mail for bulk Opration",
+        });
+      }
+
+      const today = moment().startOf("day");
+
+      if (!mailEntry.dailyEmailCount) {
+        mailEntry.dailyEmailCount = { date: today.toDate(), count: 0 };
+        await mailEntry.save();
+      }
+
+      const accountAgeInDays = moment().diff(
+        moment(mailEntry.dailyEmailCount.date),
+        "days"
+      );
+      const emailLimit =
+        EMAIL_LIMITS.find((limit) => accountAgeInDays <= limit.days)?.limit ||
+        500;
+
+      if (moment(mailEntry.dailyEmailCount.date).isBefore(today)) {
+        mailEntry.dailyEmailCount.date = today.toDate();
+        mailEntry.dailyEmailCount.count = 0;
+        await mailEntry.save();
+      }
+
+      if (mailEntry.dailyEmailCount.count >= emailLimit) {
+        console.warn("⛔ Daily email limit reached.");
+        sendNotification(
+          userId,
+          "⛔ Daily email limit reached. Try again tomorrow."
+        );
+        return res
+          .status(403)
+          .json({ message: "Daily email limit reached. Try again tomorrow." });
+      }
     }
 
     await waitForQueueReady();
@@ -262,13 +324,16 @@ exports.startProcessing = async (req, res) => {
 
     console.log("Queuing job for processing...");
 
+    const pathfile = uploadedFiles.xlxsfilePath;
+    console.log("📦 Excel File Path in the file:", pathfile);
+
     const job = await videoQueue.add(
       `process-videos-${userId}`, // Unique job name for each user
       {
-        excelPath: uploadedFiles.excelPath,
+        excelFilePath: pathfile,
         camVideoPath: uploadedFiles.camVideoPath,
         userId,
-        videoCount,
+        folderId,
       },
       {
         jobId: `video-process-${userId}-${Date.now()}`, // Ensures unique job for each user
@@ -279,32 +344,40 @@ exports.startProcessing = async (req, res) => {
 
     console.log(`✅ Job queued with ID: ${job.id}`);
 
+    const jobs = await videoQueue.getJobs(["waiting", "active", "failed"]);
+    console.log(
+      "map jobs",
+      jobs.map((j) => j.data)
+    );
+
     // ✅ Debugging: Check job status in the queue
     const jobCheck = await videoQueue.getJob(job.id);
+
     if (jobCheck) {
-      console.log(`🔍 Job ${job.id} status:`, await jobCheck.getState());
+      const jobState = await jobCheck.getState();
+      console.log(`🔍 Job ${job.id} status: ${jobState}`);
+
+      if (jobState === "failed") {
+        console.log(`❌ Job ${job.id} failed due to: ${jobCheck.failedReason}`);
+      }
     } else {
       console.error(`❌ Job ${job.id} not found in queue.`);
     }
 
     const checkJobCompletion = async (jobId) => {
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         console.log(`⏳ Waiting for job ${jobId} to complete...`);
 
-        const handleJobCompletion = async ({
-          jobId: completedJobId,
-          returnvalue,
-        }) => {
-          if (completedJobId === jobId) {
-            console.log(`✅ Job ${jobId} completed successfully.`);
-            queueEvents.off("completed", handleJobCompletion); // ✅ Remove listener
-            resolve(returnvalue);
+        // Listen for the job completion
+        queueEvents.once(
+          "completed",
+          ({ jobId: completedJobId, returnvalue }) => {
+            if (completedJobId === jobId) {
+              console.log(`✅ Job ${jobId} completed.`);
+              resolve(returnvalue);
+            }
           }
-        };
-
-        queueEvents.off("completed", handleJobCompletion); // Remove previous listener
-        queueEvents.on("completed", handleJobCompletion);
-        console.log(`🔍 Listener attached for Job ${job.id}`);
+        );
       });
     };
 
@@ -312,18 +385,37 @@ exports.startProcessing = async (req, res) => {
     console.log("Merged URLs in completed job:", mergedUrls);
 
     if (mergedUrls?.length > 0) {
-      await incrementVideoCount(userId, mergedUrls.length);
-      uploadedFiles.excelPath = null;
-      uploadedFiles.camVideoPath = null;
+      console.log(
+        `🔽 Updating remaining slots from ${remaining} to ${
+          remaining - mergedUrls.length
+        }`
+      );
+
+      const userRecord = await User.findById(userId).select("videosCount");
+
+      if (userRecord && typeof userRecord.videosCount === "number") {
+        // If videosCount exists, increment it
+        await User.findByIdAndUpdate(userId, { $inc: { videosCount: mergedUrls.length } });
+      } else {
+        // If videosCount does not exist, set it
+        await User.findByIdAndUpdate(userId, { $set: { videosCount: mergedUrls.length } });
+      }
+      
 
       sendNotification(
         userId,
-        `✅ ${mergedUrls.length} videos processed successfully. Remaining slots: ${remaining}`
+        `✅ ${
+          mergedUrls.length
+        } videos processed successfully. Remaining slots: ${
+          remaining - mergedUrls.length
+        }`
       );
       return res.status(200).json({
         success: true,
         mergedUrls,
-        message: `Videos processed successfully. Remaining slots: ${remaining}`,
+        message: `Videos processed successfully. Remaining slots: ${
+          remaining - mergedUrls.length
+        }`,
       });
     } else {
       sendNotification(userId, "❌ Processing failed, no videos merged.");
@@ -335,6 +427,29 @@ exports.startProcessing = async (req, res) => {
     if (userId) sendNotification(userId, "❌ Error queuing process.");
     console.error("❌ Error queuing process:", error);
     return res.status(500).json({ error: "Internal Server Error" });
+  } finally {
+    try {
+      if (
+        uploadedFiles.xlxsfilePath &&
+        fs.existsSync(uploadedFiles.xlxsfilePath)
+      ) {
+        fs.unlinkSync(uploadedFiles.xlxsfilePath);
+        console.log(`🗑️ Deleted Excel file: ${uploadedFiles.xlxsfilePath}`);
+      }
+      if (
+        uploadedFiles.camVideoPath &&
+        fs.existsSync(uploadedFiles.camVideoPath)
+      ) {
+        fs.unlinkSync(uploadedFiles.camVideoPath);
+        console.log(`🗑️ Deleted Camera video: ${uploadedFiles.camVideoPath}`);
+      }
+
+      // ✅ Only set to null after deleting files
+      uploadedFiles.xlxsfilePath = null;
+      uploadedFiles.camVideoPath = null;
+    } catch (error) {
+      console.error("❌ Error deleting uploaded files:", error);
+    }
   }
 };
 

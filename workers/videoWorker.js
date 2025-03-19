@@ -23,6 +23,7 @@ const { sendNotification } = require("../services/notificationService");
 const { canUploadVideos } = require("../services/subscriptionService");
 
 const maxConcurrency = Math.max(1, os.cpus().length - 1);
+
 let terminationRequested = false;
 
 const redisConnection = new Redis(process.env.REDIS_URL, {
@@ -233,8 +234,9 @@ const processWebsites = async (websiteUrls, jobId, userId) => {
   console.log(`✅ Websites recorded successfully: ${recordedVideos.length}`);
   return recordedVideos;
 };
-
 const processJob = async (job) => {
+  console.log("📦 Job Data:", job.data);
+
   try {
     if (terminationRequested) {
       console.log(`🛑 Job ${job.id} skipped due to termination.`);
@@ -242,15 +244,21 @@ const processJob = async (job) => {
     }
 
     console.log(`🚀 Processing job ${job.id}...`);
-    const { excelPath, camVideoPath, userId } = job.data;
+    const { excelFilePath, camVideoPath, userId, folderId } = job.data;
+
+    console.log("📦 Job Data:", job.data);
+
     console.log(`🎥 Processing job for User: ${userId}`);
 
     if (!userId) throw new Error("❌ Missing userId in job data.");
     const user = await User.findById(userId);
     if (!user) throw new Error("❌ User not found for job.");
+
+    const videoPreference = user.videoPreference || "storeOnly"; // Default to 'storeOnly'
+    console.log(`📌 User Video Preference: ${videoPreference}`);
     const cameraSettings = user.cameraSettings;
 
-    let data = await processExcel(excelPath);
+    let data = processExcel(excelFilePath);
     console.log("✅ Excel file processed successfully.", data);
     if (!data.length)
       throw new Error("❌ No valid data found in the Excel file.");
@@ -259,11 +267,7 @@ const processJob = async (job) => {
     const userPlanDetails = await canUploadVideos(userId, data.length);
     console.log("✅ User plan details:", userPlanDetails);
 
-    let availableSlots =
-      userPlanDetails && userPlanDetails.remaining !== undefined
-        ? userPlanDetails.remaining
-        : 0;
-    // ✅ Initialize 'availableSlots'
+    let availableSlots = userPlanDetails?.remaining ?? 0;
 
     if (availableSlots <= 0) {
       throw new Error("⛔ No available slots for video processing.");
@@ -277,13 +281,12 @@ const processJob = async (job) => {
     console.log(`✅ Final Adjusted videoCount: ${limitedData.length} videos.`);
 
     const extractedUrls = limitedData
-      .map((row) => row["Website-Url"] || row["WebsiteUrl"]) // Handle both possible key variations
+      .map((row) => row["Website-Url"] || row["WebsiteUrl"])
       .filter((url) => url && url.startsWith("http")); // Ensure only valid URLs
 
     console.log("🔍 Valid extracted URLs:", extractedUrls);
 
     const recordedVideos = await processWebsites(extractedUrls, job.id, userId);
-
     if (!recordedVideos.length) throw new Error("❌ No recordings succeeded.");
 
     // ✅ Parallel Processing: Merging Videos & Uploading to S3
@@ -309,6 +312,12 @@ const processJob = async (job) => {
           );
 
           console.log(`✅ Video uploaded to S3: ${s3Url}`);
+
+          // ✅ If "storeOnly", skip email sending, just store the video
+          if (videoPreference === "storeOnly") {
+            console.log(`📂 Storing video only for ${webUrl}, no email sent.`);
+          }
+
           return { rowNumber: index + 1, s3Url, webUrl };
         } catch (error) {
           console.error(`❌ Error processing row ${index + 1}:`, error.message);
@@ -332,96 +341,115 @@ const processJob = async (job) => {
       imapschema.findOne({ userId }).lean(),
     ]);
 
-    // ✅ Queue Emails for Sending One by One
-    for (const { rowNumber, s3Url } of successfulMerges) {
-      const matchedRow = limitedData[rowNumber - 1];
+    // ✅ Skip Email Sending if Preference is "storeOnly"
+    if (videoPreference !== "storeOnly") {
+      for (const { rowNumber, s3Url } of successfulMerges) {
+        const matchedRow = limitedData[rowNumber - 1];
 
-      if (!matchedRow?.Email) {
-        console.warn(`⚠️ No email found for row ${rowNumber}. Skipping email.`);
-        continue;
-      }
-
-      const {
-        Email: recipientEmail,
-        Name,
-        WebsiteUrl: WebsiteUrl,
-        ClientCompany,
-        ClientDesignation,
-      } = matchedRow;
-      console.log(`📤 Sending email to: ${recipientEmail} (Row: ${rowNumber})`);
-
-      try {
-        if (googlemail) {
-          await sendEmail({
-            email: recipientEmail,
-            userId,
-            s3Url,
-            Name,
-            WebsiteUrl,
-            ClientCompany,
-            ClientDesignation,
-          });
-        } else if (microsoft) {
-          await sendBulkEmails({
-            email: recipientEmail,
-            userId,
-            s3Url,
-            Name,
-            WebsiteUrl,
-            ClientCompany,
-            ClientDesignation,
-          });
-        } else if (imap) {
-          await sendEmailIMAP({
-            email: recipientEmail,
-            userId,
-            s3Url,
-            Name,
-            WebsiteUrl,
-            ClientCompany,
-            ClientDesignation,
-          });
-        } else {
+        if (!matchedRow?.Email) {
           console.warn(
-            `⚠️ No email service found for user ${userId}. Skipping email.`
+            `⚠️ No email found for row ${rowNumber}. Skipping email.`
+          );
+          continue;
+        }
+
+        const {
+          Email: recipientEmail,
+          Name,
+          WebsiteUrl,
+          ClientCompany,
+          ClientDesignation,
+        } = matchedRow;
+        console.log(
+          `📤 Sending email to: ${recipientEmail} (Row: ${rowNumber})`
+        );
+
+        try {
+          if (googlemail) {
+            await sendEmail({
+              email: recipientEmail,
+              userId,
+              s3Url,
+              Name,
+              WebsiteUrl,
+              ClientCompany,
+              ClientDesignation,
+            });
+          } else if (microsoft) {
+            await sendBulkEmails({
+              email: recipientEmail,
+              userId,
+              s3Url,
+              Name,
+              WebsiteUrl,
+              ClientCompany,
+              ClientDesignation,
+            });
+          } else if (imap) {
+            await sendEmailIMAP({
+              email: recipientEmail,
+              userId,
+              s3Url,
+              Name,
+              WebsiteUrl,
+              ClientCompany,
+              ClientDesignation,
+            });
+          } else {
+            console.warn(
+              `⚠️ No email service found for user ${userId}. Skipping email.`
+            );
+          }
+        } catch (error) {
+          console.error(
+            `❌ Error sending email to ${recipientEmail}:`,
+            error.message
           );
         }
-      } catch (error) {
-        console.error(
-          `❌ Error sending email to ${recipientEmail}:`,
-          error.message
-        );
       }
+    } else {
+      console.log("📂 Skipping email sending, as user selected 'storeOnly'.");
     }
 
     // ✅ Store Processed Videos in Database
-    const videoRecords = successfulMerges.map(({ s3Url, webUrl }) => ({
-      mergedUrl: s3Url,
-      websiteUrl: webUrl,
-    }));
+    const videoRecords = successfulMerges
+      .map(({ s3Url, webUrl }, index) => {
+        const matchedRow = limitedData[index];
 
-    if (videoRecords.length > 0) {
-      await Video.create({ userId, videos: videoRecords });
-      console.log("✅ Videos successfully saved to DB!");
-    } else {
-      console.warn("⚠️ No videos processed. Skipping DB save.");
+        return {
+          mergedUrl: s3Url,
+          websiteUrl: webUrl,
+          email: matchedRow?.Email || null,
+          name: matchedRow?.Name || null,
+          clientCompany: matchedRow?.ClientCompany || null,
+          clientDesignation: matchedRow?.ClientDesignation || null,
+        };
+      })
+      .filter(Boolean); // Removes null values from the array
+
+    console.log("📂 Video Records:", videoRecords);
+
+    try {
+      if (videoRecords.length > 0) {
+        await Video.findOneAndUpdate(
+          { userId, folderId }, // Find document by userId + folderId
+          { $push: { videos: { $each: videoRecords } } }, // Add new videos
+          { upsert: true, new: true } // Create document if not exists
+        );
+        console.log("✅ All videos saved in the folder!");
+      } else {
+        console.warn("⚠️ No videos processed. Skipping DB save.");
+      }
+    } catch (error) {
+      console.error("❌ Error saving videos to DB:", error.message);
+      throw error;
     }
 
-    console.log(`✅ Job ${job.id} completed.`);
+    console.log(`✅ Job in video process ${job.id} completed.`);
     return successfulMerges.length ? successfulMerges : [];
   } catch (error) {
     console.error(`❌ Error in job ${job.id}:`, error.message);
     throw error;
-  } finally {
-    // ✅ Ensures deletion of files EVEN IF errors occur
-    if (fs.existsSync(excelPath)) {
-      console.log(`🗑️ Deleting Excel file: ${excelPath}`);
-      deleteFile(excelPath);
-    }
-    if (fs.existsSync(camVideoPath)) {
-      console.log(`🗑️ Deleting Camera Video: ${camVideoPath}`);
-      deleteFile(camVideoPath);
-    }
   }
 };
 
@@ -432,21 +460,30 @@ let videoWorker = new Worker(
       console.log(`🛑 Job ${job.id} skipped due to termination.`);
       return;
     }
-    const result = await processJob(job);
 
-    console.log(`📢 Worker is returning result for job ${job.id}:`, result);
-    return result || [];
+    try {
+      const result = await processJob(job);
+      console.log(`📢 Worker is returning result for job ${job.id}:`, result);
+      return result || [];
+    } catch (error) {
+      console.error(`❌ Worker failed for job ${job.id}:`, error);
+      return [];
+    }
   },
   {
     connection: redisConnection,
     concurrency: maxConcurrency,
     lockDuration: 60000,
-    removeOnComplete: true, // ✅ Remove successful jobs
-    removeOnFail: false, // ❌ Keep failed jobs for debugging
-    attempts: 1, // ✅ Limit retries to 3 times
-    backoff: { type: "exponential", delay: 5000 }, // ✅ Exponential retry delay
+    removeOnComplete: true,
+    removeOnFail: false,
+    attempts: 1,
+    backoff: { type: "exponential", delay: 5000 },
   }
 );
+
+videoWorker.on("failed", (job, err) => {
+  console.error(`❌ Job ${job.id} failed:`, err.message);
+});
 
 const terminateProcessing = async (req, res) => {
   try {
