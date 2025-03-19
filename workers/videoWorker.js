@@ -223,8 +223,7 @@ const processWebsites = async (websiteUrls, jobId, userId) => {
 
     if (terminationRequested) {
       console.log(
-        `🛑 Job ${jobId} stopped after completing batch ${
-          i / maxConcurrentTabs + 1
+        `🛑 Job ${jobId} stopped after completing batch ${i / maxConcurrentTabs + 1
         }.`
       );
       break;
@@ -289,34 +288,27 @@ const processJob = async (job) => {
     const recordedVideos = await processWebsites(extractedUrls, job.id, userId);
     if (!recordedVideos.length) throw new Error("❌ No recordings succeeded.");
 
+    const userSuccessfulMerges = {};
+
     // ✅ Parallel Processing: Merging Videos & Uploading to S3
     const mergedVideos = await Promise.all(
       recordedVideos.map(async ({ webUrl, path: webVideo }, index) => {
         const outputFilePath = `./uploads/merged_${Date.now()}_${index}.mp4`;
 
         try {
-          console.log(`🔄 Merging video for row ${index + 1}...`);
-          await mergeVideos(
-            webVideo,
-            camVideoPath,
-            outputFilePath,
-            cameraSettings
-          );
+          console.log(`🔄 Merging video for row ${index + 1} (User: ${userId})...`);
+          await mergeVideos(webVideo, camVideoPath, outputFilePath, cameraSettings);
 
-          console.log(
-            `☁️ Uploading merged video to S3 for row ${index + 1}...`
-          );
-          const s3Url = await uploadToS3(
-            outputFilePath,
-            `merged_${Date.now()}_${index}.mp4`
-          );
+          console.log(`☁️ Uploading merged video to S3 for row ${index + 1}...`);
+          const s3Url = await uploadToS3(outputFilePath, `merged_${Date.now()}_${index}.mp4`);
 
           console.log(`✅ Video uploaded to S3: ${s3Url}`);
 
-          // ✅ If "storeOnly", skip email sending, just store the video
-          if (videoPreference === "storeOnly") {
-            console.log(`📂 Storing video only for ${webUrl}, no email sent.`);
+          // ✅ Store separately for each userId
+          if (!userSuccessfulMerges[userId]) {
+            userSuccessfulMerges[userId] = [];
           }
+          userSuccessfulMerges[userId].push({ rowNumber: index + 1, s3Url, webUrl });
 
           return { rowNumber: index + 1, s3Url, webUrl };
         } catch (error) {
@@ -328,6 +320,7 @@ const processJob = async (job) => {
         }
       })
     );
+
 
     // ✅ Filter out failed merges
     const successfulMerges = mergedVideos.filter((video) => video !== null);
@@ -412,38 +405,49 @@ const processJob = async (job) => {
     }
 
     // ✅ Store Processed Videos in Database
-    const videoRecords = successfulMerges
-      .map(({ s3Url, webUrl }, index) => {
-        const matchedRow = limitedData[index];
+    const videoRecordsByUser = {};
 
-        return {
-          mergedUrl: s3Url,
-          websiteUrl: webUrl,
-          email: matchedRow?.Email || null,
-          name: matchedRow?.Name || null,
-          clientCompany: matchedRow?.ClientCompany || null,
-          clientDesignation: matchedRow?.ClientDesignation || null,
-        };
-      })
-      .filter(Boolean); // Removes null values from the array
+    for (const [userId, successfulMerges] of Object.entries(userSuccessfulMerges)) {
+      videoRecordsByUser[userId] = successfulMerges
+        .map(({ rowNumber, s3Url, webUrl }) => {
+          const matchedRow = limitedData[rowNumber - 1]; // Ensure correct mapping using rowNumber
 
-    console.log("📂 Video Records:", videoRecords);
+          if (!matchedRow) {
+            console.warn(`⚠️ No matching row found for rowNumber ${rowNumber}. Skipping.`);
+            return null;
+          }
+
+          return {
+            userId, // Ensure we store the user ID for tracking
+            mergedUrl: s3Url,
+            websiteUrl: webUrl,
+            email: matchedRow.Email || null,
+            name: matchedRow.Name || null,
+            clientCompany: matchedRow.ClientCompany || null,
+            clientDesignation: matchedRow.ClientDesignation || null,
+          };
+        })
+        .filter(Boolean); // Removes null values from the array
+    }
+
+
 
     try {
-      if (videoRecords.length > 0) {
+      // Iterate over each user in videoRecordsByUser
+      for (const userId in videoRecordsByUser) {
+        if (videoRecordsByUser[userId].length === 0) continue; // Skip if no videos
+
         await Video.findOneAndUpdate(
-          { userId, folderId }, // Find document by userId + folderId
-          { $push: { videos: { $each: videoRecords } } }, // Add new videos
-          { upsert: true, new: true } // Create document if not exists
+          { userId, folderId },
+          { $push: { videos: { $each: videoRecordsByUser[userId] } } },
+          { upsert: true, new: true, }
         );
-        console.log("✅ All videos saved in the folder!");
-      } else {
-        console.warn("⚠️ No videos processed. Skipping DB save.");
       }
+      console.log("✅ All videos saved successfully!");
     } catch (error) {
-      console.error("❌ Error saving videos to DB:", error.message);
+      console.error("❌ Error saving videos:", error.message);
       throw error;
-    }
+    } 
 
     console.log(`✅ Job in video process ${job.id} completed.`);
     return successfulMerges.length ? successfulMerges : [];
@@ -474,7 +478,7 @@ let videoWorker = new Worker(
     connection: redisConnection,
     concurrency: maxConcurrency,
     lockDuration: 60000,
-    removeOnComplete: true,
+    removeOnComplete: false,
     removeOnFail: false,
     attempts: 1,
     backoff: { type: "exponential", delay: 5000 },

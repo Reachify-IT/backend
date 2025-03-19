@@ -5,6 +5,7 @@ const processExcel = require("../utils/processExcel");
 const { terminateProcessing, mergedUrls } = require("../workers/videoWorker");
 const { queueEvents } = require("../workers/videoWorker");
 const Video = require("../models/Video");
+const { v4: uuidv4 } = require("uuid");
 const {
   canUploadVideos,
   incrementVideoCount,
@@ -144,8 +145,8 @@ const waitForQueueReady = async () => {
 exports.startProcessing = async (req, res) => {
   let userId; // Declare userId outside try block to be accessible in catch block
 
-  const folderId = req.body.folderId;
-  console.log("📂 Folder ID:", folderId);
+  const { folderId, excelUrl, videoUrl } = req.body;
+  console.log("📂 Request Body:", req.body);
   try {
     console.log("⚠️ startProcessing() was called! Checking why...");
 
@@ -156,17 +157,17 @@ exports.startProcessing = async (req, res) => {
         .json({ error: "Processing must be manually started." });
     }
 
-    if (!uploadedFiles.xlxsfilePath || !uploadedFiles.camVideoPath) {
+    if (!excelUrl || !videoUrl) {
       return res
         .status(400)
         .json({ error: "Both Excel and Camera video must be uploaded first" });
     }
 
-    console.log("📂 Processing Excel File:", uploadedFiles.xlxsfilePath);
-    console.log("📹 Processing Camera Video:", uploadedFiles.camVideoPath);
+    console.log("📂 Processing Excel File:", excelUrl);
+    console.log("📹 Processing Camera Video:", videoUrl);
 
     // ✅ Read the Excel file
-    const websiteUrls = processExcel(uploadedFiles.xlxsfilePath);
+    const websiteUrls = processExcel(excelUrl);
     if (websiteUrls.length === 0) {
       return res
         .status(400)
@@ -324,31 +325,23 @@ exports.startProcessing = async (req, res) => {
 
     console.log("Queuing job for processing...");
 
-    const pathfile = uploadedFiles.xlxsfilePath;
-    console.log("📦 Excel File Path in the file:", pathfile);
-
     const job = await videoQueue.add(
       `process-videos-${userId}`, // Unique job name for each user
       {
-        excelFilePath: pathfile,
-        camVideoPath: uploadedFiles.camVideoPath,
+        excelFilePath: excelUrl,
+        camVideoPath: videoUrl,
         userId,
         folderId,
       },
       {
-        jobId: `video-process-${userId}-${Date.now()}`, // Ensures unique job for each user
-        removeOnComplete: true, // Clean up completed jobs
+        jobId: `video-process-${userId}-${uuidv4()}`, // Ensures unique job for each user
+        removeOnComplete: false, // Clean up completed jobs
         removeOnFail: false, // Keep failed jobs for debugging
       }
     );
 
     console.log(`✅ Job queued with ID: ${job.id}`);
 
-    const jobs = await videoQueue.getJobs(["waiting", "active", "failed"]);
-    console.log(
-      "map jobs",
-      jobs.map((j) => j.data)
-    );
 
     // ✅ Debugging: Check job status in the queue
     const jobCheck = await videoQueue.getJob(job.id);
@@ -364,92 +357,45 @@ exports.startProcessing = async (req, res) => {
       console.error(`❌ Job ${job.id} not found in queue.`);
     }
 
-    const checkJobCompletion = async (jobId) => {
-      return new Promise((resolve) => {
-        console.log(`⏳ Waiting for job ${jobId} to complete...`);
+    // ✅ Send response immediately
+    res.status(202).json({
+      success: true,
+      jobId: job.id, // Send job ID to the user
+      message: "Your video processing has started. You will be notified upon completion.",
+    });
 
-        // Listen for the job completion
-        queueEvents.once(
-          "completed",
-          ({ jobId: completedJobId, returnvalue }) => {
-            if (completedJobId === jobId) {
-              console.log(`✅ Job ${jobId} completed.`);
-              resolve(returnvalue);
-            }
+    // ✅ Listen for job completion asynchronously (runs in background)
+    queueEvents.on("completed", async ({ jobId: completedJobId, returnvalue }) => {
+      if (completedJobId === job.id) {
+        console.log(`✅ Job ${completedJobId} completed.`);
+
+        const mergedUrls = returnvalue;
+
+        if (mergedUrls?.length > 0) {
+          console.log(
+            `🔽 Updating remaining slots from ${remaining} to ${remaining - mergedUrls.length}`
+          );
+
+          const userRecord = await User.findById(userId).select("videosCount");
+
+          if (userRecord && typeof userRecord.videosCount === "number") {
+            await User.findByIdAndUpdate(userId, { $inc: { videosCount: mergedUrls.length } });
+          } else {
+            await User.findByIdAndUpdate(userId, { $set: { videosCount: mergedUrls.length } });
           }
-        );
-      });
-    };
 
-    const mergedUrls = await checkJobCompletion(job.id);
-    console.log("Merged URLs in completed job:", mergedUrls);
-
-    if (mergedUrls?.length > 0) {
-      console.log(
-        `🔽 Updating remaining slots from ${remaining} to ${
-          remaining - mergedUrls.length
-        }`
-      );
-
-      const userRecord = await User.findById(userId).select("videosCount");
-
-      if (userRecord && typeof userRecord.videosCount === "number") {
-        // If videosCount exists, increment it
-        await User.findByIdAndUpdate(userId, { $inc: { videosCount: mergedUrls.length } });
-      } else {
-        // If videosCount does not exist, set it
-        await User.findByIdAndUpdate(userId, { $set: { videosCount: mergedUrls.length } });
+          // ✅ Notify User via WebSocket or Database Update
+          sendNotification(
+            userId,
+            `✅ ${mergedUrls.length} videos processed successfully. Remaining slots: ${remaining - mergedUrls.length}`
+          );
+        }
       }
-      
-
-      sendNotification(
-        userId,
-        `✅ ${
-          mergedUrls.length
-        } videos processed successfully. Remaining slots: ${
-          remaining - mergedUrls.length
-        }`
-      );
-      return res.status(200).json({
-        success: true,
-        mergedUrls,
-        message: `Videos processed successfully. Remaining slots: ${
-          remaining - mergedUrls.length
-        }`,
-      });
-    } else {
-      sendNotification(userId, "❌ Processing failed, no videos merged.");
-      return res
-        .status(500)
-        .json({ error: "Processing failed, no videos merged." });
-    }
+    });
   } catch (error) {
     if (userId) sendNotification(userId, "❌ Error queuing process.");
     console.error("❌ Error queuing process:", error);
     return res.status(500).json({ error: "Internal Server Error" });
-  } finally {
-    try {
-      if (
-        uploadedFiles.xlxsfilePath &&
-        fs.existsSync(uploadedFiles.xlxsfilePath)
-      ) {
-        fs.unlinkSync(uploadedFiles.xlxsfilePath);
-        console.log(`🗑️ Deleted Excel file: ${uploadedFiles.xlxsfilePath}`);
-      }
-      if (
-        uploadedFiles.camVideoPath &&
-        fs.existsSync(uploadedFiles.camVideoPath)
-      ) {
-        fs.unlinkSync(uploadedFiles.camVideoPath);
-        console.log(`🗑️ Deleted Camera video: ${uploadedFiles.camVideoPath}`);
-      }
-
-      // ✅ Only set to null after deleting files
-      uploadedFiles.xlxsfilePath = null;
-      uploadedFiles.camVideoPath = null;
-    } catch (error) {
-      console.error("❌ Error deleting uploaded files:", error);
-    }
   }
 };
 
