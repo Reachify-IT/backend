@@ -8,6 +8,7 @@ const mailSchema = require("../models/mailSchema");
 
 const CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
+const FRONTEND_URL = process.env.FRONTEND_URL
 const REDIRECT_URI = "http://localhost:8000/api/oauth/microsoft/callback";
 
 const { google } = require("googleapis");
@@ -101,7 +102,7 @@ exports.microsoftAuthCallback = async (req, res) => {
 
     // Redirect user to frontend with the token
     res.redirect(
-      `http://localhost:5173/home`
+      `${FRONTEND_URL}/home`
     );
   } catch (error) {
     console.error("❌ OAuth Error:", error.response?.data || error.message);
@@ -184,7 +185,7 @@ exports.googleCallback = async (req, res) => {
     console.log("✅ OAuth tokens saved successfully!");
 
     // Redirect frontend with success response
-    const redirectUrl = `http://localhost:5173/home`;
+    const redirectUrl = `${FRONTEND_URL}/home`;
     res.redirect(redirectUrl);
   } catch (error) {
     console.error("❌ OAuth Callback Error:", error);
