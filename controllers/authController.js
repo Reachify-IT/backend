@@ -69,12 +69,12 @@ const signin = async (req, res, next) => {
       return res.status(400).json({ error: "Invalid email or password" });
     }
 
-    // Check if the user is on a "Trial" plan and it has expired
-    if (user.planDetails === "Trial" && user.trialEndDate && new Date() > user.trialEndDate) {
-      return res.status(403).json({
-        error: "Your free trial has expired. Please upgrade to continue.",
-      });
-    }
+    // // Check if the user is on a "Trial" plan and it has expired
+    // if (user.planDetails === "Trial" && user.trialEndDate && new Date() > user.trialEndDate) {
+    //   return res.status(403).json({
+    //     error: "Your free trial has expired. Please upgrade to continue.",
+    //   });
+    // }
 
     // Generate Access Token
     const accessToken = generateToken(user._id);

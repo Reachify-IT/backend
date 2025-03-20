@@ -8,7 +8,7 @@ const mailSchema = require("../models/mailSchema");
 
 const CLIENT_ID = process.env.MICROSOFT_CLIENT_ID;
 const CLIENT_SECRET = process.env.MICROSOFT_CLIENT_SECRET;
-const FRONTEND_URL = process.env.FRONTEND_URL
+const FRONTEND_URL = process.env.FRONTEND_URL;
 const REDIRECT_URI = "http://localhost:8000/api/oauth/microsoft/callback";
 
 const { google } = require("googleapis");

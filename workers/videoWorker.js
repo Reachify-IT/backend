@@ -25,6 +25,8 @@ const { canUploadVideos } = require("../services/subscriptionService");
 const maxConcurrency = Math.max(1, os.cpus().length - 1);
 
 let terminationRequested = false;
+const terminateFlags = {};
+
 
 const redisConnection = new Redis(process.env.REDIS_URL, {
   tls: { rejectUnauthorized: false },
@@ -81,12 +83,11 @@ const deleteFile = (filePath) => {
   }
 };
 
-const maxConcurrentTabs = 5;
 
 const processWebsites = async (websiteUrls, jobId, userId) => {
   const outputDir = path.join(__dirname, "../uploads/");
   let recordedVideos = [];
-  const maxConcurrentTabs = 5; // Ensure it's defined
+  const maxConcurrentTabs = 1; // Ensure it's defined
 
   const user = await User.findById(userId);
   if (!user || !user.planDetails) {
@@ -156,10 +157,9 @@ const processWebsites = async (websiteUrls, jobId, userId) => {
   console.log("🔍 Websites being processed:", limitedWebsiteUrls);
 
   for (let i = 0; i < limitedWebsiteUrls.length; i += maxConcurrentTabs) {
-    if (terminationRequested) {
-      console.log(
-        `🛑 Job ${jobId} termination requested. Stopping after current batch.`
-      );
+
+    if (terminateFlags[jobId]) {
+      console.log(`🛑 Job ${jobId} termination detected. Stopping processing.`);
       break;
     }
 
@@ -221,11 +221,9 @@ const processWebsites = async (websiteUrls, jobId, userId) => {
       );
     }
 
-    if (terminationRequested) {
-      console.log(
-        `🛑 Job ${jobId} stopped after completing batch ${i / maxConcurrentTabs + 1
-        }.`
-      );
+    if (terminateFlags[jobId]) {
+      sendNotification(userId,`🛑 Job ${jobId} stopped after completing batch ${i / maxConcurrentTabs + 1}.`);
+      console.log(`🛑 Job ${jobId} stopped after completing batch ${i / maxConcurrentTabs + 1}.`);
       break;
     }
   }
@@ -489,98 +487,13 @@ videoWorker.on("failed", (job, err) => {
   console.error(`❌ Job ${job.id} failed:`, err.message);
 });
 
-const terminateProcessing = async (req, res) => {
-  try {
-    console.log("🛑 Termination Requested!");
-    sendNotification("🛑 Termination Requested!");
-    terminationRequested = true;
+const terminateProcessing = async (jobID,userId) => {
+  console.log(`🛑 Termination Requested for Job ID: ${jobID}`);
+  sendNotification(userId,`🛑 Termination Requested for Job ID: ${jobID}`);
 
-    // Pause Queue
-    await videoQueue.pause();
-    console.log("🚫 Queue Paused!");
+  terminateFlags[jobID] = true; // Mark job as terminated for this specific job
 
-    // Close Worker
-    if (videoWorker) {
-      await videoWorker.close();
-      console.log("💀 Worker Closed!");
-    }
-
-    // Wait before clearing queue
-    console.log("⏳ Waiting before clearing queue...");
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
-    // Drain and clear queue
-    await videoQueue.drain();
-    console.log("🧹 Queue Drained (Removed Waiting Jobs)!");
-
-    await videoQueue.obliterate({ force: true });
-    console.log("🔥 All Jobs Cleared!");
-
-    // Reset Redis
-    await redisConnection.flushall();
-    console.log("🧹 Redis fully reset!");
-
-    // Clear Completed Jobs Map
-    completedJobs.clear();
-    console.log("🧹 Cleared completed jobs map!");
-
-    terminationRequested = false;
-
-    // 🔄 **Check & Restart Redis Connection**
-    if (!redisConnection.status || redisConnection.status !== "ready") {
-      console.log("🔄 Redis connection lost. Reconnecting...");
-      redisConnection = new Redis({
-        host: "localhost",
-        port: 6379,
-      });
-
-      redisConnection.on("ready", () => {
-        console.log("✅ Redis Reconnected!");
-      });
-
-      redisConnection.on("error", (err) => {
-        console.error("❌ Redis Connection Error:", err);
-      });
-
-      // Wait for Redis to be ready
-      await new Promise((resolve) => redisConnection.once("ready", resolve));
-    } else {
-      console.log("✅ Redis already connected.");
-    }
-    // 🔄 **Restarting Worker**
-    console.log("🔄 Restarting Worker...");
-    videoWorker = new Worker(
-      "videoProcessing",
-      async (job) => await processJob(job),
-      {
-        connection: redisConnection,
-        concurrency: maxConcurrency,
-        lockDuration: 60000,
-      }
-    );
-
-    // Ensure worker is ready
-    await videoWorker.waitUntilReady();
-    console.log("✅ Worker Restarted Successfully!");
-
-    // Resume Queue
-    await videoQueue.resume();
-    console.log("▶️ Queue Resumed!");
-
-    if (res) {
-      return res.json({
-        message: "Processing terminated and restarted successfully.",
-      });
-    } else {
-      console.log("✅ Termination & Restart completed.");
-    }
-  } catch (error) {
-    console.error("❌ Error during termination:", error);
-
-    if (res) {
-      return res.status(500).json({ error: "Failed to terminate processing" });
-    }
-  }
+  return { message: `Job ${jobID} termination initiated.` };
 };
 
 redisConnection.on("connect", () => console.log("✅ Redis connected!"));

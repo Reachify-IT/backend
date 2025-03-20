@@ -407,13 +407,21 @@ exports.startProcessing = async (req, res) => {
 
 exports.terminateProcessing = async (req, res) => {
   try {
-    await terminateProcessing();
-    res.json({ message: "Processing terminated successfully." });
+    const { jobId } = req.body; 
+    const userId =req.user.id;
+    console.log(`🛑 Termination Requested for Job ID: ${jobId}`);
+    if (!jobId) {
+      return res.status(400).json({ error: "Job ID is required" });
+    }
+
+    const result = await terminateProcessing(jobId,userId);
+    res.json(result);
   } catch (error) {
     console.error("❌ Error terminating worker:", error);
     res.status(500).json({ error: "Failed to terminate processing" });
   }
 };
+
 
 exports.getAllVideos = async (req, res) => {
   try {
