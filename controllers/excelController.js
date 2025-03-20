@@ -364,6 +364,12 @@ exports.startProcessing = async (req, res) => {
       message: "Your video processing has started. You will be notified upon completion.",
     });
 
+    // ✅ Notify User via WebSocket or Database Update
+    sendNotification(
+      userId,
+      `📦 Video processing has started with jobID : ( ${job.id} ). You will be notified upon completion.`
+    );
+
     // ✅ Listen for job completion asynchronously (runs in background)
     queueEvents.on("completed", async ({ jobId: completedJobId, returnvalue }) => {
       if (completedJobId === job.id) {

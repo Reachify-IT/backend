@@ -1,6 +1,7 @@
 const axios = require('axios');
 const mongoose = require('mongoose');
 const MailInfoSchema = require('../models/MailInfoSchema');
+const { sendNotification } = require('./notificationService');
 
 const processEmailService = async ({
     userId,
@@ -11,11 +12,11 @@ const processEmailService = async ({
     client_website,
     video_path
 }) => {
-
     console.log(client_name, client_company, client_designation, client_mail, client_website, video_path);
-    const objectId = new mongoose.Types.ObjectId(userId);
 
+    const objectId = new mongoose.Types.ObjectId(userId);
     const MailInfo = await MailInfoSchema.findOne({ userId: objectId });
+
     if (!MailInfo) {
         throw new Error('User not found');
     }
@@ -41,13 +42,26 @@ const processEmailService = async ({
             headers: {
                 "Content-Type": "application/json",
                 "Accept": "application/json"
-            }
+            },
+            timeout: 10000 // Set timeout to avoid indefinite hanging
         });
 
         console.log('Email processed successfully:', response.data);
         return response.data;
     } catch (error) {
         console.error('Error processing email:', error.response?.data || error.message);
+
+        let errorMessage = '❌ Email processing failed!';
+        if (error.code === 'ETIMEDOUT') {
+            errorMessage += ' Server timeout. Please check your connection or try again later.';
+        } else if (error.response) {
+            errorMessage += ` Server responded with: ${error.response.status} - ${error.response.statusText}`;
+        } else {
+            errorMessage += ' An unexpected error occurred.';
+        }
+
+        // Send notification with the failure reason
+        sendNotification(userId, `${errorMessage} (Email: ${client_mail})`);
         throw error;
     }
 };

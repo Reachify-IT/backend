@@ -5,6 +5,8 @@ const nodemailer = require("nodemailer");
 const twilio = require("twilio");
 const bcrypt = require("bcryptjs");
 
+dotenv = require("dotenv");
+dotenv.config();
 // Setup Nodemailer
 
 
