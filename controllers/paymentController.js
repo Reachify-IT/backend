@@ -103,7 +103,7 @@ exports.initiatePayment = async (req, res) => {
       userId,
       orderId,
       planDetails,
-      amount: paymentResponse.order_amount,
+      amount: selectedPlan.price,
       currency,
       referenceId: paymentResponse.cf_order_id || null,
       orderStatus: paymentResponse.order_status || "PENDING",
