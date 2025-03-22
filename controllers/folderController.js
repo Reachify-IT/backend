@@ -115,6 +115,21 @@ exports.deleteFolder = async (req, res) => {
             return res.status(404).json({ error: "Folder not found" });
         }
 
+        const videos = await Video.find({ folderId: folderId });
+
+        if(!videos.length){
+            return res.status(404).json({ error: "No videos found for this folder." });
+        }
+
+
+        const userId = req.user.id;
+
+        if (folder.userId.toString() !== userId) {
+            return res.status(403).json({ error: "Unauthorized" });
+        }
+
+        await Video.deleteMany({ folderId: folderId });
+
         await folderSchema.findByIdAndDelete(folderId);
         res.json({
              success: true,

@@ -7,15 +7,49 @@ const User = require("../models/User");
 require("dotenv").config();
 const axios = require("axios");
 
-// ✅ Initiate Payment
 
+const plans = [
+  {
+    id: "starter",
+    name: "Starter",
+    price: 1,
+    looms: 2000,
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: 2500,
+    looms: 5000,
+  },
+  {
+    id: "enterprise",
+    name: "Enterprise",
+    price: 5000,
+    looms: 10000,
+  },
+];
+
+// ✅ Initiate Payment
 exports.initiatePayment = async (req, res) => {
   try {
     console.log("🔍 [DEBUG] Initiating Payment...");
 
-    const { amount, orderId, planDetails, currency = "INR" } = req.body; // ✅ Allow dynamic currency
+    const { orderId, planDetails } = req.body;
 
-    if (!amount || !orderId || !planDetails) {
+    // Find the plan that matches the name from req.body
+    const selectedPlan = plans.find(plan => plan.name === planDetails);
+
+    if (!selectedPlan) {
+      return res.status(400).json({ error: "Invalid plan name" }); // Return error response
+    }
+
+    if (selectedPlan) {
+      console.log(`Price of ${planDetails}:`, selectedPlan.price);
+    } else {
+      console.log("Plan not found!");
+    }
+
+    if (!selectedPlan || !orderId || !planDetails) {
       console.error("❌ [ERROR] Missing required fields:", req.body);
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
@@ -24,15 +58,16 @@ exports.initiatePayment = async (req, res) => {
     const user = await User.findById(userId);
 
     if (!user) {
+      console.error("❌ [ERROR] User not found:", userId);
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    console.log("✅ [INFO] Received valid payment request:", { userId, amount, orderId, planDetails });
+    console.log("✅ [INFO] Valid payment request:", { userId, orderId, planDetails });
 
     const orderData = {
       order_id: orderId,
-      order_amount: amount,
-      order_currency: currency, // ✅ Allow payments in INR, USD, etc.
+      order_amount: selectedPlan.price,
+      order_currency: currency,
       order_note: `Subscription upgrade to ${planDetails}`,
       customer_details: {
         customer_id: `cust_${orderId}`,
@@ -43,20 +78,21 @@ exports.initiatePayment = async (req, res) => {
       order_meta: {
         return_url: `${process.env.FRONTEND_URL}/payment-status?order_id=${orderId}`,
         notify_url: `${process.env.BACKEND_URL}/api/payments/webhook`,
-        payment_methods: "cc,dc,upi,nb,paylater", // ✅ Supports multiple payment types
+        payment_methods: "cc,dc,upi,nb,paylater",
       },
     };
 
     console.log("🔍 [DEBUG] Sending request to Cashfree API:", orderData);
 
-    // ✅ Create Order on Cashfree
+    // ✅ Make API request to Cashfree
     const paymentResponse = await createOrder(orderData);
 
-    if (!paymentResponse.payment_session_id) {
-      throw new Error("Failed to create payment session with Cashfree.");
+    if (!paymentResponse || !paymentResponse.payment_session_id) {
+      console.error("❌ [ERROR] Failed to get payment_session_id from Cashfree:", paymentResponse);
+      return res.status(500).json({ success: false, message: "Failed to create payment session with Cashfree." });
     }
 
-    console.log("✅ [INFO] Received response from Cashfree API:", paymentResponse);
+    console.log("✅ [INFO] Cashfree Response:", paymentResponse);
 
     // ✅ Update User Subscription Plan
     user.planDetails = planDetails;
@@ -67,29 +103,30 @@ exports.initiatePayment = async (req, res) => {
       userId,
       orderId,
       planDetails,
-      amount,
+      amount: paymentResponse.order_amount,
       currency,
-      referenceId: paymentResponse.cf_order_id || null, // ✅ Ensure referenceId exists
-      status: paymentResponse.order_status || "PENDING", // ✅ Default status if missing
+      referenceId: paymentResponse.cf_order_id || null,
+      orderStatus: paymentResponse.order_status || "PENDING",
     });
 
     await newPayment.save();
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       status: paymentResponse.order_status,
       payment_session_id: paymentResponse.payment_session_id,
       order_id: paymentResponse.order_id,
     });
   } catch (error) {
-    console.error("❌ [ERROR] Error in initiatePayment:", error.message);
-    res.status(500).json({
+    console.error("❌ [ERROR] Error in initiatePayment:", error);
+    return res.status(500).json({
       success: false,
       message: "Internal Server Error",
       error: error.message,
     });
   }
 };
+
 
 // ✅ Get Payment Status
 exports.getPaymentStatus = async (req, res) => {
@@ -106,8 +143,9 @@ exports.getPaymentStatus = async (req, res) => {
 
     // ✅ Fetch Payment Status from Cashfree API
     const paymentDetails = await getCashfreePaymentStatus(orderId);
+    const transitionDetails = await getCashfreePaymentStatuswithTransition(orderId);
 
-    console.log("✅ [INFO] Cashfree API Payment Status:", paymentDetails);
+    console.log("✅ [INFO] Cashfree API Payment Status:", paymentDetails); lo
 
     // ✅ Find Payment Record
     const payment = await Payment.findOne({ orderId });
@@ -117,24 +155,30 @@ exports.getPaymentStatus = async (req, res) => {
         .json({ success: false, message: "Payment record not found" });
 
     // ✅ Update Payment Status
-    payment.status = paymentDetails.order_status;
+    payment.orderStatus = paymentDetails.order_status;
+    payment.paymentStatus = transitionDetails.payment_status;
+    payment.transactionId = transitionDetails.cf_payment_id;
+
     await payment.save();
 
     // ✅ Store Payment in User's Payment History
-    await User.findByIdAndUpdate(payment.userId, {
-      $push: {
-        paymentHistory: {
-          orderId,
-          amount: paymentDetails.order_amount,
-          status: paymentDetails.order_status,
-          date: new Date(),
+    if (transitionDetails.payment_status === "SUCCESS") {
+      await User.findByIdAndUpdate(payment.userId, {
+        $push: {
+          paymentHistory: {
+            orderId,
+            amount: paymentDetails.order_amount,
+            status: transitionDetails.payment_status,
+            date: new Date(),
+          },
         },
-      },
-    });
+      });
+    }
 
     res
       .status(200)
-      .json({ success: true, orderId, status: paymentDetails.order_status });
+      .json({ success: true, orderId, status: transitionDetails.payment_status });
+    sentNotification(payment.userId, `Your Payment Status is: ${transitionDetails.payment_status}`);
   } catch (error) {
     console.error("❌ [ERROR] Error in getPaymentStatus:", error.message);
     res.status(500).json({ success: false, message: "Internal Server Error" });

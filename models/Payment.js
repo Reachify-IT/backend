@@ -10,12 +10,18 @@ const PaymentSchema = new mongoose.Schema(
       default: "Trial", // New users start with "Trial"
     },
     trialEndDate: { type: Date }, // Store trial expiration date
-    
+
     amount: { type: Number, required: true },
-    currency: { type: String, default: "INR" },
+    currency: { type: String, default: "USD" },
     referenceId: { type: String }, // Cashfree transaction reference
     paymentMethod: { type: String }, // ✅ Added to track payment type (UPI, card, etc.)
-    status: {
+    transactionId: { type: String },
+    paymentStatus: {
+      type: String,
+      enum: ["PENDING", "SUCCESS", "FAILED", "CANCELLED"],
+      default: "PENDING",
+    },
+    orderStatus: {
       type: String,
       enum: ["PENDING", "ACTIVE", "PAID", "TERMINATED"],
       default: "PENDING",

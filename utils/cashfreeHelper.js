@@ -53,5 +53,24 @@ async function getCashfreePaymentStatus(orderId) {
     throw new Error("Failed to fetch payment status");
   }
 }
+async function getCashfreePaymentStatuswithTransition(orderId) {
+  try {
+    const url = `${CASHFREE_BASE_URL}/orders/${orderId}/payments`;
+    console.log("🔍 Fetching Payment Status from:", url);
 
-module.exports = { createOrder, getCashfreePaymentStatus };
+    const response = await axios.get(url, {
+      headers: {
+        "x-api-version": config.CASHFREE_API_VERSION,
+        "x-client-id": config.CASHFREE_APP_ID,
+        "x-client-secret": config.CASHFREE_SECRET_KEY,
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error("❌ Error fetching payment status:", error.response?.data || error.message);
+    throw new Error("Failed to fetch payment status");
+  }
+}
+
+module.exports = { createOrder, getCashfreePaymentStatus,getCashfreePaymentStatuswithTransition };
