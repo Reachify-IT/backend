@@ -36,6 +36,8 @@ exports.initiatePayment = async (req, res) => {
 
     const { orderId, planDetails } = req.body;
 
+    const currency = "INR";
+    
     // Find the plan that matches the name from req.body
     const selectedPlan = plans.find(plan => plan.name === planDetails);
 
@@ -67,7 +69,7 @@ exports.initiatePayment = async (req, res) => {
     const orderData = {
       order_id: orderId,
       order_amount: selectedPlan.price,
-      order_currency: "INR",
+      order_currency: currency,
       order_note: `Subscription upgrade to ${planDetails}`,
       customer_details: {
         customer_id: `cust_${orderId}`,
