@@ -148,7 +148,7 @@ exports.getPaymentStatus = async (req, res) => {
     // ✅ Fetch Payment Status from Cashfree API
     const paymentDetails = await getCashfreePaymentStatus(orderId);
     const transitionDetails = await getCashfreePaymentStatuswithTransition(orderId);
-
+    console.log("✅ [INFO] Cashfree API transitionDetails:", transitionDetails);
     console.log("✅ [INFO] Cashfree API Payment Status:", paymentDetails);
 
     // ✅ Find Payment Record
