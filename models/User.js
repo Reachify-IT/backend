@@ -37,7 +37,7 @@ const UserSchema = new mongoose.Schema(
       },
       size: {
         type: String,
-        enum: ["small", "medium", "large", "extra-large"],
+        enum: ["small", "medium", "large"],
         default: "medium",
       },
     },
@@ -45,8 +45,8 @@ const UserSchema = new mongoose.Schema(
     // ✅ Payment history array to store all transactions
     paymentHistory: [
       {
-        orderId: { type: String, required: true },
-        amount: { type: Number, required: true },
+        orderId: { type: String},
+        amount: { type: Number},
         status: {
           type: String,
           enum: ["PENDING", "ACTIVE", "PAID", "TERMINATED"],
