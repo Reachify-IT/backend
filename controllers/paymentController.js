@@ -67,7 +67,7 @@ exports.initiatePayment = async (req, res) => {
     const orderData = {
       order_id: orderId,
       order_amount: selectedPlan.price,
-      order_currency: currency,
+      order_currency: "USD",
       order_note: `Subscription upgrade to ${planDetails}`,
       customer_details: {
         customer_id: `cust_${orderId}`,
