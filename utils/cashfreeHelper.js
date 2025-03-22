@@ -36,7 +36,7 @@ async function createOrder(orderData) {
 // ✅ Fetch Payment Status
 async function getCashfreePaymentStatus(orderId) {
   try {
-    const url = `${CASHFREE_BASE_URL}/orders/${orderId}`;
+    const url = `${CASHFREE_BASE_URL}/orders/${orderId}/payments`;
     console.log("🔍 Fetching Payment Status from:", url);
 
     const response = await axios.get(url, {
