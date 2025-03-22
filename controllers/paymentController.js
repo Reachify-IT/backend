@@ -179,10 +179,13 @@ exports.getPaymentStatus = async (req, res) => {
       });
     }
 
+    
+    // sentNotification(payment.userId, `Your Payment Status is: ${transitionDetails.payment_status}`);
+
     res
       .status(200)
       .json({ success: true, orderId, status: transitionDetails.payment_status });
-    sentNotification(payment.userId, `Your Payment Status is: ${transitionDetails.payment_status}`);
+    // sentNotification(payment.userId, `Your Payment Status is: ${transitionDetails.payment_status}`);
   } catch (error) {
     console.error("❌ [ERROR] Error in getPaymentStatus:", error.message);
     res.status(500).json({ success: false, message: "Internal Server Error" });
