@@ -45,11 +45,11 @@ const UserSchema = new mongoose.Schema(
     // ✅ Payment history array to store all transactions
     paymentHistory: [
       {
-        orderId: { type: String},
+        orderId: { type: String },
         amount: { type: Number},
         status: {
           type: String,
-          enum: ["PENDING", "ACTIVE", "PAID", "TERMINATED"],
+          enum: ["PENDING", "ACTIVE", "PAID", "TERMINATED", "CANCELLED","NOT_ATTEMPTED", "SUCCESS", "FAILED"],
           default: "PENDING",
         },
         date: { type: Date, default: Date.now },

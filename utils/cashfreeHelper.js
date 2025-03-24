@@ -14,7 +14,7 @@ async function createOrder(orderData) {
     const response = await axios.post(url, orderData, {
       headers: {
         Accept: "application/json",
-        "x-api-version": "2023-08-01",
+        "x-api-version": process.env.CASHFREE_API_VERSION,
         "x-client-id": process.env.CASHFREE_APP_ID,
         "x-client-secret": process.env.CASHFREE_SECRET_KEY,
       },

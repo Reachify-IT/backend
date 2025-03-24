@@ -4,6 +4,7 @@ const {
   initiatePayment,
   // paymentWebhook,
   getPaymentStatus,
+  paymentWebhook,
 } = require("../controllers/paymentController");
  const  {verifyToken}  = require("../middleware/verifyToken");
 
@@ -11,7 +12,7 @@ const {
 router.post("/initiate", verifyToken, initiatePayment);
 
 // // ✅ Handle webhook for automatic status updates
-// router.post("/webhook", paymentWebhook);
+ router.post("/webhook", paymentWebhook);
 
 // ✅ Fetch payment status
 router.get("/status/:orderId",verifyToken, getPaymentStatus);

@@ -2,13 +2,14 @@ const Payment = require("../models/Payment");
 const {
   createOrder,
   getCashfreePaymentStatus,
-getCashfreePaymentStatuswithTransition
-
+  getCashfreePaymentStatuswithTransition
 } = require("../utils/cashfreeHelper");
 const User = require("../models/User");
+const { sendNotification } = require("../services/notificationService");
 require("dotenv").config();
 const axios = require("axios");
-const { sendNotification } = require("../services/notificationService");
+
+
 
 const plans = [
   {
@@ -37,26 +38,23 @@ exports.initiatePayment = async (req, res) => {
     console.log("🔍 [DEBUG] Initiating Payment...");
 
     const { orderId, planDetails } = req.body;
-
     const currency = "INR";
-    
+
+    // Validate required fields
+    if (!orderId || !planDetails) {
+      console.error("❌ [ERROR] Missing required fields:", req.body);
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
     // Find the plan that matches the name from req.body
     const selectedPlan = plans.find(plan => plan.name === planDetails);
 
     if (!selectedPlan) {
-      return res.status(400).json({ error: "Invalid plan name" }); // Return error response
+      console.error("❌ [ERROR] Invalid plan name:", planDetails);
+      return res.status(400).json({ success: false, message: "Invalid plan name" });
     }
 
-    if (selectedPlan) {
-      console.log(`Price of ${planDetails}:`, selectedPlan.price);
-    } else {
-      console.log("Plan not found!");
-    }
-
-    if (!selectedPlan || !orderId || !planDetails) {
-      console.error("❌ [ERROR] Missing required fields:", req.body);
-      return res.status(400).json({ success: false, message: "Missing required fields" });
-    }
+    console.log(`✅ [INFO] Price of ${planDetails}:`, selectedPlan.price);
 
     const userId = req.user.id;
     const user = await User.findById(userId);
@@ -98,10 +96,6 @@ exports.initiatePayment = async (req, res) => {
 
     console.log("✅ [INFO] Cashfree Response:", paymentResponse);
 
-    // ✅ Update User Subscription Plan
-    user.planDetails = planDetails;
-    await user.save();
-
     // ✅ Save Payment in Database
     const newPayment = new Payment({
       userId,
@@ -121,6 +115,7 @@ exports.initiatePayment = async (req, res) => {
       payment_session_id: paymentResponse.payment_session_id,
       order_id: paymentResponse.order_id,
     });
+
   } catch (error) {
     console.error("❌ [ERROR] Error in initiatePayment:", error);
     return res.status(500).json({
@@ -132,65 +127,99 @@ exports.initiatePayment = async (req, res) => {
 };
 
 
+
 // ✅ Get Payment Status
 exports.getPaymentStatus = async (req, res) => {
   try {
     const { orderId } = req.params;
+    const userId = req.user.id;
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
     console.log("🔍 [DEBUG] Fetching Payment Status for Order:", orderId);
 
     if (!orderId) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Order ID is required" });
+      return res.status(400).json({ success: false, message: "Order ID is required" });
     }
 
     // ✅ Fetch Payment Status from Cashfree API
     const paymentDetails = await getCashfreePaymentStatus(orderId);
     const transitionDetails = await getCashfreePaymentStatuswithTransition(orderId);
-    console.log("✅ [INFO] Cashfree API transitionDetails:", transitionDetails);
+
     console.log("✅ [INFO] Cashfree API Payment Status:", paymentDetails);
+    console.log("✅ [INFO] Cashfree API transitionDetails:", transitionDetails);
+
+    // Ensure transitionDetails is an array and extract the first element
+    if (!Array.isArray(transitionDetails) || transitionDetails.length === 0) {
+      return res.status(404).json({ success: false, message: "Payment transition details not found" });
+    }
+
+    const paymentData = transitionDetails[0]; // Extracting first transition record
+
+    console.log("✅ [INFO] Payment Data:", paymentData);
+
+
 
     // ✅ Find Payment Record
     const payment = await Payment.findOne({ orderId });
-    if (!payment)
-      return res
-        .status(404)
-        .json({ success: false, message: "Payment record not found" });
+    if (!payment) {
+      return res.status(404).json({ success: false, message: "Payment record not found" });
+    }
 
     // ✅ Update Payment Status
-    payment.orderStatus = paymentDetails.order_status;
-    payment.paymentStatus = transitionDetails.payment_status;
-    payment.transactionId = transitionDetails.cf_payment_id;
+    payment.orderStatus = paymentDetails.order_status || "UNKNOWN";
+    payment.paymentStatus = paymentData.payment_status || "PENDING";
+    payment.transactionId = paymentData.cf_payment_id || null;
 
     await payment.save();
 
+    const planDetails = paymentDetails.order_note.split(' ').pop();
+
+
+
+
     // ✅ Store Payment in User's Payment History
-    if (transitionDetails.payment_status === "SUCCESS") {
+    if (paymentData.payment_status === "SUCCESS") {
       await User.findByIdAndUpdate(payment.userId, {
         $push: {
           paymentHistory: {
             orderId,
-            amount: paymentDetails.order_amount,
-            status: transitionDetails.payment_status,
+            amount: paymentDetails.order_amount || 0,
+            status: "SUCCESS",
             date: new Date(),
           },
         },
       });
+
+      console.log("✅ [INFO] Payment recorded successfully in user's history.");
+
+      // ✅ Update User Subscription Plan if payment is successful
+      user.planDetails = planDetails;
+      await user.save();
+      console.log("✅ [INFO] User subscription plan updated successfully.");
     }
 
-    
-    // sentNotification(payment.userId, `Your Payment Status is: ${transitionDetails.payment_status}`);
 
-    res
-      .status(200)
-      .json({ success: true, orderId, status: transitionDetails.payment_status });
-    // sentNotification(payment.userId, `Your Payment Status is: ${transitionDetails.payment_status}`);
+    // ✅ Notify User
+    sendNotification(userId, `✅ Your payment status is '${paymentData.payment_status}' for the '${planDetails}' plan.`);
+
+    // ✅ Send Response
+    res.status(200).json({
+      success: true,
+      orderId,
+      status: paymentData.payment_status,
+    });
+
   } catch (error) {
     console.error("❌ [ERROR] Error in getPaymentStatus:", error.message);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
 
 // ✅ Webhook to Auto-Upgrade Plan
 
@@ -200,6 +229,7 @@ exports.paymentWebhook = async (req, res) => {
 
     const { orderId, orderAmount, referenceId, txStatus } = req.body;
 
+    // ✅ Validate Required Fields
     if (!orderId || !orderAmount || !txStatus) {
       console.error("❌ [ERROR] Missing required fields in webhook data");
       return res
@@ -217,60 +247,59 @@ exports.paymentWebhook = async (req, res) => {
     }
 
     // ✅ Ignore Already Processed Payments
-    if (payment.status === "PAID") {
+    if (payment.status === "PAID" || payment.status === "CANCELLED") {
       console.log("⚠️ [INFO] Duplicate Webhook - Payment Already Processed:", orderId);
       return res.status(200).json({ success: true, message: "Payment already processed" });
     }
 
     // ✅ Update Payment Status
-    payment.status = txStatus === "SUCCESS" ? "PAID" : "FAILED";
+    payment.status = txStatus === "SUCCESS" ? "PAID" : "CANCELLED";
     payment.referenceId = referenceId;
     await payment.save();
 
-    if (txStatus !== "SUCCESS") {
-      console.log(`❌ [INFO] Payment Failed for Order ID: ${orderId}`);
-      return res.status(200).json({ success: true, message: "Payment failed, no upgrade applied" });
-    }
+    // ✅ Handle Payment Success
+    if (txStatus === "SUCCESS") {
+      const user = await User.findById(payment.userId);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
 
-    // ✅ Fetch User & Auto-Upgrade Plan
-    const user = await User.findById(payment.userId);
-    if (!user)
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+      // ✅ Upgrade User Plan
+      const upgradePlan = (amount) => {
+        if (amount >= 5000) return "Enterprise";
+        if (amount >= 2500) return "Pro";
+        if (amount >= 1000) return "Starter";
+        return user.planDetails; // No downgrade
+      };
 
-    // ✅ Auto-Upgrade Plan Logic
-    const upgradePlan = (amount) => {
-      if (amount >= 5000) return "Enterprise";
-      if (amount >= 2500) return "Pro";
-      if (amount >= 1000) return "Starter";
-      return user.planDetails; // No downgrade
-    };
+      const newPlan = upgradePlan(orderAmount);
+      if (newPlan !== user.planDetails) {
+        user.planDetails = newPlan;
+        user.videosCount = 0; // ✅ Reset video count on plan upgrade
+      }
 
-    const newPlan = upgradePlan(orderAmount);
-    if (newPlan !== user.planDetails) {
-      user.planDetails = newPlan;
-      user.videosCount = 0; // ✅ Reset video count on plan upgrade
+      console.log(`✅ [INFO] User ${user.email} upgraded to: ${newPlan}`);
+    } else {
+      console.log(`❌ [INFO] Payment Canceled for Order ID: ${orderId}`);
     }
 
     // ✅ Store Payment in User's Payment History
-    user.paymentHistory.push({
-      orderId,
-      amount: orderAmount,
-      status: payment.status,
-      date: new Date(),
+    await User.findByIdAndUpdate(payment.userId, {
+      $push: {
+        paymentHistory: {
+          orderId,
+          amount: orderAmount,
+          status: payment.status,
+          date: new Date(),
+        },
+      },
     });
 
-    await user.save();
-
-    console.log(`✅ [INFO] User ${user.email} upgraded to: ${newPlan}`);
-
-    res
-      .status(200)
-      .json({ success: true, message: "Webhook processed successfully" });
+    res.status(200).json({ success: true, message: `Payment ${txStatus.toLowerCase()} processed successfully` });
 
   } catch (error) {
     console.error("❌ [ERROR] Webhook Error:", error.message);
     res.status(500).json({ success: false, message: "Internal Server Error" });
   }
 };
+
