@@ -1,4 +1,4 @@
-const MailCount = require("../models/MailCount");
+const MailCount = require("../models/MailCount.js");
 
 const updateMailCount = async (userId, isSuccess) => {
   try {
