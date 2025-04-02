@@ -4,6 +4,7 @@ const nodemailer = require("nodemailer");
 const ImapSchema = require("../models/imapschema"); // Use PascalCase for model naming
 const { encryptPassword } = require("../utils/cryptoUtil");
 const { sendNotification } = require("../services/notificationService");
+const { findOneAndDelete } = require("../models/googlemailSchema");
 
 const authenticateIMAP = async ({ email, password, imapHost, imapPort }) => {
   return new Promise((resolve, reject) => {
@@ -107,18 +108,18 @@ exports.configureIMAP = async (req, res) => {
       return res.status(400).json({ error: "Invalid IMAP credentials" });
     }
 
-
-    const existingUser = await ImapSchema.findOne({ userId });
-    if (existingUser) {
-      return res
-        .status(400)
-        .json({ error: "IMAP configuration already exists for this user" });
-    } 
+    const existingImap = await ImapSchema.findOne({ userId });
+    if (existingImap) {
+      console.log("🗑️ Deleting existing imap entry...");
+      await ImapSchema.deleteOne({ userId });
+    }
 
     // Encrypt password before storing
     // const hashedPassword = await bcrypt.hash(password, 10);
     const hashedPassword = encryptPassword(password);
     console.log("hashedPassword", hashedPassword);
+
+
 
 
     console.log("🔑 IMAP credentials are valid, saving in database...");
@@ -150,9 +151,10 @@ exports.configureIMAP = async (req, res) => {
 
     sendNotification(userId, "✅ IMAP/SMTP sccessfully configured");
 
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
-      message: "IMAP configuration saved successfully!" });
+      message: "IMAP configuration saved successfully!"
+    });
   } catch (error) {
     console.error("❌ IMAP Configuration Error:", error);
     sendNotification(userId, "❌ IMAP Configuration Failed, Please try again");

@@ -14,6 +14,7 @@ const { decryptPassword } = require("../utils/cryptoUtil");
 const { sendNotification } = require("../services/notificationService");
 const processEmailService = require("../services/APIService");
 const mongoose = require("mongoose");
+const { updateMailCount } = require("../utils/updateMailCount");
 
 const EMAIL_LIMITS = [
   { days: 3, limit: 30 },
@@ -169,6 +170,8 @@ exports.sendBulkEmails = async ({
         }
       );
 
+
+      await updateMailCount(userId, true);
       console.log(`✅ Email sent successfully to: ${email}`);
       sendNotification(userId, `✅ Email sent to: ${email}`);
       successCount++;
@@ -182,6 +185,8 @@ exports.sendBulkEmails = async ({
         }
       );
     } catch (error) {
+      // ❌ Update failed count in database
+      await updateMailCount(userId, false);
       console.error(`❌ Failed to send email to ${email}`);
       console.error("🔍 Error Details:", error.response ? error.response.data : error.message);
 
@@ -371,6 +376,7 @@ exports.sendEmail = async ({
         requestBody: { raw: encodedMessage },
       });
 
+      await updateMailCount(userId, true);
       console.log(`✅ Email sent to: ${email}`);
       sendNotification(userId, `✅ Email sent to: ${email}`);
 
@@ -388,6 +394,8 @@ exports.sendEmail = async ({
         emailSent: email,
       };
     } catch (error) {
+      // ❌ Update failed count in database
+      await updateMailCount(userId, false);
       console.error(`❌ Failed to send email to ${email}:`, error.message);
       sendNotification(userId, `❌ Failed to send email to ${email}`);
       return {
@@ -565,6 +573,7 @@ exports.sendEmailIMAP = async ({
       );
       await transporter.sendMail(mailOptions);
       console.log(`✅ Email sent successfully to ${email}`);
+      await updateMailCount(userId, true);
       sendNotification(userId, `✅ Email sent successfully to ${email}`);
       successCount++;
       // ✅ Atomic Update to Prevent Race Conditions
@@ -576,6 +585,8 @@ exports.sendEmailIMAP = async ({
         }
       );
     } catch (err) {
+      // ❌ Update failed count in database
+      await updateMailCount(userId, false);
       console.error(`❌ Failed to send email to ${email}:`, err);
       sendNotification(
         userId,

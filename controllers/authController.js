@@ -10,6 +10,8 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
+const MailCount = require("../models/MailCount");
+const Video = require("../models/Video");
 
 require("dotenv").config();
 
@@ -92,9 +94,42 @@ const signin = async (req, res, next) => {
 const userDetails = async (req, res, next) => {
   try {
     const user = await UserService.findById(req.user.id); // Find by ID instead of email
+
+    const videosCount = await Video.aggregate([
+      {
+        $match: { userId: user._id } // Filter videos by user
+      },
+      {
+        $unwind: "$videos" // Deconstruct the videos array
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$videos.createdAt" },
+            month: { $month: "$videos.createdAt" }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { "_id.year": -1, "_id.month": -1 } // Sort by latest month first
+      }
+    ]);
+
+    const monthlyVideos = videosCount.map(({ _id, count }) => ({
+      year: _id.year,
+      month: _id.month,
+      totalVideos: count
+    }));
+
+
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    res.status(200).json({ user: UserService.sanitizeUser(user) });
+    res.status(200).json({
+      user: UserService.sanitizeUser(user),
+      success: true,
+      monthlyVideos
+    });
   } catch (err) {
     next(err);
   }
@@ -110,11 +145,13 @@ const updateDetails = async (req, res, next) => {
     // Check if email or phone number already exists
     const existingEmail = await UserService.findByEmail(email);
     if (existingEmail && existingEmail._id.toString() !== userId) {
+      sendNotification(userId, "❌ User Details Update Failed!, Email already exists! 🚀");
       return res.status(400).json({ error: "Email already exists" });
     }
 
     const existingPhone = await UserService.findByPhone(phoneNumber);
     if (existingPhone && existingPhone._id.toString() !== userId) {
+      sendNotification(userId, "❌ User Details Update Failed!, Phone number already exists! 🚀");
       return res.status(400).json({ error: "Phone number already exists" });
     }
 
@@ -270,9 +307,26 @@ const resetpassword = async (req, res) => {
   }
 }
 
+const getMailCount = async (req, res) => {
+  try {
+    const userId = req.user.id; // Ensure the user ID is coming from the decoded token
+
+    const mailCount = await MailCount.findOne({ userId });
+
+    if (!mailCount) {
+      return res.status(404).json({ success: false, message: "Mail count not found" });
+    }
+
+    res.status(200).json({ success: true, data: mailCount });
+  } catch (error) {
+    console.error("Error fetching mail count:", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
+  }
+}
 
 
 
 
 
-module.exports = { signup, signin, userDetails, updateDetails, logout, forgetpassword, resetpassword };
+
+module.exports = { signup, signin, userDetails, updateDetails, logout, forgetpassword, resetpassword, getMailCount };

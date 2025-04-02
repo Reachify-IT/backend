@@ -81,12 +81,14 @@ exports.microsoftAuthCallback = async (req, res) => {
       return res.status(404).json({ error: "❌ User not found" });
     }
 
-    // Check if email already exists
-    const existingMail = await mailSchema.findOne({
-      email: decodedIdToken.email,
-    });
-    if (existingMail) {
-      return res.status(400).json({ error: "❌ Email already exists" });
+
+    // ✅ Store OAuth tokens in the correct schema
+    const alreadyexistingMail = await mailSchema.findOne({ state });
+
+    // Delete existing entry if it exists
+    if (alreadyexistingMail) {
+      console.log("🗑️ Deleting existing mail entry...");
+      await mailSchema.findOneAndDelete({ state });
     }
 
     // Save user authentication details
@@ -165,22 +167,26 @@ exports.googleCallback = async (req, res) => {
     console.log("🔄 Updating OAuth tokens for user:", userId);
 
     // ✅ Store OAuth tokens in the correct schema
+
+
     let mailUser = await Mail.findOne({ userId });
 
-    if (mailUser) {
-      console.log("🔄 Updating existing refresh token...");
-      if (tokens.refresh_token) {
-        mailUser.googleRefreshToken = tokens.refresh_token;
-      }
-    } else {
-      console.log("🆕 Creating new Mail entry...");
-      mailUser = new Mail({
-        userId, // ✅ Link to existing user
-        email,
-        googleRefreshToken: tokens.refresh_token || "", // Avoid storing undefined values
-      });
-    }
 
+    // Delete existing entry if it exists
+    if (mailUser) {
+      console.log("🗑️ Deleting existing mail entry...");
+      await Mail.findOneAndDelete({ userId });
+    }
+    // Create a new mail entry
+    console.log("🆕 Creating new Mail entry...");
+    mailUser = await Mail.create({
+      userId,
+      email,
+      googleRefreshToken: tokens.refresh_token || "",
+      googleAccessToken: tokens.access_token || "",
+    });
+
+    
     await mailUser.save();
     console.log("✅ OAuth tokens saved successfully!");
 

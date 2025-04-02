@@ -1,5 +1,5 @@
 const express = require("express");
-const { signup, signin, userDetails,updateDetails, logout, forgetpassword, resetpassword } = require("../controllers/authController");
+const { signup, signin, userDetails,updateDetails, logout, forgetpassword, resetpassword, getMailCount } = require("../controllers/authController");
 const { verifyToken, authorizeRoles } = require("../middleware/verifyToken");
 const { validateSignup, validateSignin } = require("../validators/authValidator");
 
@@ -9,6 +9,7 @@ router.post("/signup", validateSignup, signup);
 router.post("/signin", validateSignin, signin);
 router.get("/me", verifyToken, userDetails); 
 router.put("/update", verifyToken, updateDetails); 
+router.get("/get-mail-count",verifyToken ,getMailCount);
 
 router.post("/logout", logout);
 

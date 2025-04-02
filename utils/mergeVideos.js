@@ -23,20 +23,20 @@ const mergeVideos = async (webPath, camPath, outputPath, cameraSettings) => {
     return new Promise((resolve, reject) => {
       const { position, size } = cameraSettings;
 
-      // Define size scaling based on user preference
+      // Define size scaling based on user preference (increased scale factors)
       let scaleFactor;
       switch (size) {
         case "small":
-          scaleFactor = 0.10;
+          scaleFactor = 0.15; // Increased from 0.10
           break;
         case "medium":
-          scaleFactor = 0.20;
+          scaleFactor = 0.25; // Increased from 0.20
           break;
         case "large":
-          scaleFactor = 0.25;
+          scaleFactor = 0.30; // Increased from 0.25
           break;
         default:
-          scaleFactor = 0.07;
+          scaleFactor = 0.10; // Increased from 0.07
       }
 
       // Define overlay position dynamically
@@ -47,33 +47,35 @@ const mergeVideos = async (webPath, camPath, outputPath, cameraSettings) => {
           overlayY = 10;
           break;
         case "top-right":
-          overlayX = "main_w-overlay_w-10";
+          overlayX = "main_w-overlay_w-20"; // Increased offset
           overlayY = 10;
           break;
         case "bottom-left":
           overlayX = 10;
-          overlayY = "main_h-overlay_h-10";
+          overlayY = "main_h-overlay_h-20"; // Increased offset
           break;
         case "bottom-right":
-          overlayX = "main_w-overlay_w-10";
-          overlayY = "main_h-overlay_h-10";
+          overlayX = "main_w-overlay_w-20"; // Increased offset
+          overlayY = "main_h-overlay_h-20"; // Increased offset
           break;
         case "center":
           overlayX = "(main_w-overlay_w)/2";
           overlayY = "(main_h-overlay_h)/2";
           break;
         default:
-          overlayX = "main_w-overlay_w-10";
+          overlayX = "main_w-overlay_w-20"; // Increased offset
           overlayY = 10;
       }
 
+
       ffmpeg()
         .input(webPath) // Main video
+        .inputOptions("-stream_loop -1") // Loop main video infinitely
         .input(camPath) // Overlay video (Camera feed)
         .complexFilter([
           `[1:v]scale=iw*${scaleFactor}:ih*${scaleFactor}[overlay]; [0:v][overlay]overlay=${overlayX}:${overlayY}`
         ])
-        .outputOptions(`-t ${camDuration}`) // Trim output to overlay video duration
+        .outputOptions("-shortest") // Trim output to match overlay video duration
         .output(outputPath)
         .on("end", resolve)
         .on("error", (err) => {
@@ -81,6 +83,7 @@ const mergeVideos = async (webPath, camPath, outputPath, cameraSettings) => {
           reject(err);
         })
         .run();
+
     });
   } catch (err) {
     console.error("❌ Error getting video duration:", err.message);

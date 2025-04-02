@@ -17,6 +17,7 @@
     "@aws-sdk/s3-request-presigner": "^3.744.0",
     "@azure/msal-node": "^3.2.3",
     "@cashfreepayments/cashfree-js": "^1.0.5",
+    "@paypal/checkout-server-sdk": "^1.0.3",
     "@sendgrid/mail": "^8.1.4",
     "@socket.io/redis-adapter": "^8.3.0",
     "axios": "^1.8.1",

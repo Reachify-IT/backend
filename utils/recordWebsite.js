@@ -16,21 +16,36 @@ const smoothScroll = async (page) => {
     const getRandomDelay = () => Math.random() * 600 + 400; // Random delay between 400-1000ms
     const getScrollStep = () => Math.random() * window.innerHeight * 0.3 + window.innerHeight * 0.2; // Vary scroll step size
 
-    // Smooth scrolling function
     const smoothMove = async (direction) => {
+      let pauseCounter = 0;
+      let maxPauses = 3; // Max number of pauses
+      let slowDownThreshold = totalHeight * 0.2; // Slow down in last 20% of the scroll
+    
       while (scrollingDown ? currentPosition < totalHeight : currentPosition > 0) {
-        window.scrollBy(0, direction * scrollStep);
-        currentPosition += direction * scrollStep;
-
-        // Simulate human reading behavior
-        if (Math.random() > 0.7) {
-          await new Promise((resolve) => setTimeout(resolve, getRandomDelay()));
+        let remainingDistance = scrollingDown ? totalHeight - currentPosition : currentPosition;
+        let speedFactor = remainingDistance < slowDownThreshold ? 0.5 : 1; // Slow down near end
+    
+        window.scrollBy(0, direction * scrollStep * speedFactor);
+        currentPosition += direction * scrollStep * speedFactor;
+    
+        // Simulate small natural pauses
+        if (Math.random() > 0.6) {
+          await new Promise((resolve) => setTimeout(resolve, getRandomDelay() * 1.5));
         }
-
-        scrollStep = getScrollStep(); // Adjust step size dynamically
+    
+        // Simulate a longer pause (like getting distracted)
+        if (Math.random() > 0.9 && pauseCounter < maxPauses) {
+          pauseCounter++;
+          console.log("Pausing for a moment... 🧍‍♂️");
+          await new Promise((resolve) => setTimeout(resolve, getRandomDelay() * 4));
+        }
+    
+        // Adjust scroll step dynamically
+        scrollStep = getScrollStep() * (0.8 + Math.random() * 0.4); // Random variation in step size
         await new Promise((resolve) => setTimeout(resolve, getRandomDelay() / 2));
       }
     };
+    
 
     // Scroll down
     await smoothMove(1);

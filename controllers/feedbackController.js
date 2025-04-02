@@ -6,7 +6,7 @@ const submitFeedback = async (req, res) => {
   let userId;
   try {
     const { name, email, description, rating } = req.body;
-    const userId = req.user.id; 
+    const userId = req.user.id;
 
     if (!rating || rating < 1 || rating > 5) {
       return res.status(400).json({ error: "Rating must be between 1 and 5" });
@@ -17,15 +17,15 @@ const submitFeedback = async (req, res) => {
 
     sendNotification(userId, "✅ Feedback submitted successfully!");
 
-    res.status(201).json({ message: "Feedback submitted successfully", feedback });
+    res
+      .status(201)
+      .json({ message: "Feedback submitted successfully", feedback });
   } catch (err) {
-    if (userId){
+    if (userId) {
       sendNotification(userId, "❌ Feedback submitted failed!");
     }
     res.status(500).json({ error: "Internal Server Error" });
   }
 };
 
-
-
-module.exports = { submitFeedback};
+module.exports = { submitFeedback };

@@ -47,15 +47,36 @@ exports.sendEmailOtp = async (req, res) => {
 
         // Send OTP via email
         await transporter.sendMail({
-            from: process.env.EMAIL_USER,
+            from: `"Your Company Name" <${process.env.EMAIL_USER}>`,
             to: email,
-            subject: "Verify Your Email (OTP)",
-            text: `Your OTP is: ${otp}`
+            subject: "Verify Your Email - OTP Code",
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
+                <h2 style="color: #333; text-align: center;">Email Verification Code</h2>
+                <p style="font-size: 16px; color: #555;">Hello,</p>
+                <p style="font-size: 16px; color: #555;">
+                  Thank you for signing up. Please use the OTP below to verify your email:
+                </p>
+                <div style="text-align: center; padding: 10px 0;">
+                  <span style="font-size: 24px; font-weight: bold; color: #007bff; background: #f2f2f2; padding: 10px 20px; border-radius: 5px; display: inline-block;">${otp}</span>
+                </div>
+                <p style="font-size: 16px; color: #555;">
+                  This OTP is valid for only 10 minutes. Do not share it with anyone.
+                </p>
+                <p style="font-size: 16px; color: #555;">If you did not request this, please ignore this email.</p>
+                <p style="text-align: center; font-size: 14px; color: #888;">
+                  Regards, <br>
+                  <strong>Your Company Name</strong>
+                </p>
+              </div>
+            `,
         });
 
-        res.status(200).json({ 
+
+        res.status(200).json({
             success: true,
-            message: "OTP sent to email" });
+            message: "OTP sent to email"
+        });
 
     } catch (error) {
         console.error("Send Email OTP Error:", error);
@@ -78,7 +99,7 @@ exports.sendPhoneOtp = async (req, res) => {
         await twilioClient.messages.create({
             body: `Your OTP is: ${otp}`,
             from: process.env.TWILIO_PHONE_NUMBER,
-            to: `+ ${phoneNumber}`
+            to: `${phoneNumber}`
         });
 
         res.status(200).json({ message: "OTP sent to phone" });
@@ -104,9 +125,9 @@ exports.verifyEmailOtp = async (req, res) => {
         await Otp.deleteOne({ email });
 
         res.status(200).json({
-             success: true,
-             message: "Email verified successfully"
-         });
+            success: true,
+            message: "Email verified successfully"
+        });
 
     } catch (error) {
         console.error("Verify Email OTP Error:", error);
