@@ -22,6 +22,7 @@ const smoothScroll = async (page) => {
       let slowDownThreshold = totalHeight * 0.2; // Slow down in last 20% of the scroll
     
       while (scrollingDown ? currentPosition < totalHeight : currentPosition > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
         let remainingDistance = scrollingDown ? totalHeight - currentPosition : currentPosition;
         let speedFactor = remainingDistance < slowDownThreshold ? 0.5 : 1; // Slow down near end
     
