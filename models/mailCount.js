@@ -8,7 +8,7 @@ const mailCountSchema = new mongoose.Schema({
   },
   failedMails: {
     type: Number,
-    default: 0, // Default count is zero
+    default: 0, 
   },
 }, { timestamps: true });
 
