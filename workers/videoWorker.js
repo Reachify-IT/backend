@@ -28,6 +28,8 @@ let terminationRequested = false;
 const terminateFlags = {};
 
 
+
+
 const redisConnection = new Redis(process.env.REDIS_URL, {
   tls: { rejectUnauthorized: false },
   maxRetriesPerRequest: null,
