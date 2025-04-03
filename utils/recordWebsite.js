@@ -4,7 +4,7 @@ const fs = require("fs");
 const { PuppeteerScreenRecorder } = require("puppeteer-screen-recorder");
 
 /**
- * Smoothly Scrolls the Page from Top to Bottom and Back
+ * Smoothly Scrolls the Page from Top to Bottom and Backs
  */
 const smoothScroll = async (page) => {
   await page.evaluate(async () => {
