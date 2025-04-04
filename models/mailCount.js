@@ -1,27 +1,16 @@
 const mongoose = require("mongoose");
 
-const mailCountSchema = new mongoose.Schema(
-  {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      unique: true, // Ensures one record per user
-    },
-    successMails: {
-      type: Number,
-      default: 0,
-    },
-    failedMails: {
-      type: Number,
-      default: 0,
-    },
+const mailCountSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  successMails: {
+    type: Number,
+    default: 0, // Default count is zero
   },
-  { 
-    timestamps: true, 
-    versionKey: false // Optional: removes __v field
-  }
-);
+  failedMails: {
+    type: Number,
+    default: 0, // Default count is zero
+  },
+}, { timestamps: true });
 
 const MailCount = mongoose.model("MailCount", mailCountSchema);
 

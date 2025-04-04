@@ -4,7 +4,7 @@ const fs = require("fs");
 const { PuppeteerScreenRecorder } = require("puppeteer-screen-recorder");
 
 /**
- * Smoothly Scrolls the Page from Top to Bottom and Backs
+ * Smoothly Scrolls the Page from Top to Bottom and Back
  */
 const smoothScroll = async (page) => {
   await page.evaluate(async () => {
@@ -17,7 +17,6 @@ const smoothScroll = async (page) => {
     const getScrollStep = () => Math.random() * window.innerHeight * 0.3 + window.innerHeight * 0.2; // Vary scroll step size
 
     const smoothMove = async (direction) => {
-      await new Promise((resolve) => setTimeout(resolve,5000));
       let pauseCounter = 0;
       let maxPauses = 3; // Max number of pauses
       let slowDownThreshold = totalHeight * 0.2; // Slow down in last 20% of the scroll
