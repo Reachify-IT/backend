@@ -12,6 +12,6 @@ const mailCountSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
-const MailCount = mongoose.model("MailCount", mailCountSchema);
+const MailCount = mongoose.model("mailCount", mailCountSchema);
 
 module.exports = MailCount;

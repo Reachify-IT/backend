@@ -10,7 +10,7 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
-const MailCount = require("../models/MailCount");
+const MailCount = require("../models/mailCount");
 const Video = require("../models/Video");
 
 require("dotenv").config();
