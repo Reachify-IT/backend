@@ -44,13 +44,13 @@ app.use("/api/edit", require("./routes/editRoutes.js"));
 app.use("/api/excel", require("./routes/excelRoutes.js"));
 app.use("/api/feedback", require("./routes/feedbackRoutes"));
 app.use("/api/users", require("./routes/userRoutes"));
-// app.use("/api/payments", require("./routes/paymentRoutes"));
+app.use("/api/payments", require("./routes/paymentRoutes"));
 app.use("/api/oauth", require("./routes/Oauth.js"));
 app.use("/api/email", require("./routes/emailRoutes"));
 app.use("/api/imap", require("./routes/imapRoutes"));
 app.use("/api/otp", require("./routes/otpRoutes"));
 app.use("/api/folder", require("./routes/folderRoutes"));
-app.use("/api/payments1", require("./routes/paypalRoutes"));
+// app.use("/api/payments1", require("./routes/paypalRoutes"));
 // Root Route
 app.get("/", (req, res) => res.send("Hello World"));
 
